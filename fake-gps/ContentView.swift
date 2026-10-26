@@ -99,7 +99,6 @@ struct WebView: NSViewRepresentable {
         prefs.allowsContentJavaScript = true
 
         let userContentController = WKUserContentController()
-        // 註冊 nativeNotify 通道
         userContentController.add(model, name: "nativeNotify")
 
         let config = WKWebViewConfiguration()
@@ -126,6 +125,8 @@ struct ContentView: View {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var webViewModel = WebViewModel()
     @State private var isServerReady = false
+    @State private var startupError: String? = nil
+    @State private var pollAttempts: Int = 0
     let token = AppDelegate.sessionToken
 
     var body: some View {
@@ -136,6 +137,30 @@ struct ContentView: View {
                     coords: locationManager.userLocation,
                     model: webViewModel
                 )
+            } else if let err = startupError {
+                VStack(spacing: 14) {
+                    Text("⚠️ 後端定位服務啟動失敗")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.red)
+                    Text(err)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .padding(12)
+                        .frame(maxWidth: 560)
+                        .background(Color.gray.opacity(0.12))
+                        .cornerRadius(8)
+                    Button("🔄 重新啟動後端服務") {
+                        startupError = nil
+                        pollAttempts = 0
+                        AppDelegate.shared?.startBackendServer()
+                        checkServerReady()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(24)
+                .frame(minWidth: 500, minHeight: 340)
             } else {
                 VStack(spacing: 14) {
                     ProgressView()
@@ -156,7 +181,27 @@ struct ContentView: View {
 
     func checkServerReady() {
         Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { timer in
+            pollAttempts += 1
             let port = AppDelegate.serverPort
+
+            if let proc = AppDelegate.shared?.pythonProcess, !proc.isRunning, pollAttempts > 3 {
+                DispatchQueue.main.async {
+                    let logTail = AppDelegate.lastBackendOutput.isEmpty ? "Python 進程異常退出 (Exit code: \(proc.terminationStatus))" : AppDelegate.lastBackendOutput
+                    self.startupError = logTail
+                    timer.invalidate()
+                }
+                return
+            }
+
+            if pollAttempts > 40 {
+                DispatchQueue.main.async {
+                    let logTail = AppDelegate.lastBackendOutput.isEmpty ? "等待本地後端伺服器回應超時 (超過 16 秒)" : AppDelegate.lastBackendOutput
+                    self.startupError = logTail
+                    timer.invalidate()
+                }
+                return
+            }
+
             guard let url = URL(string: "http://127.0.0.1:\(port)/api/init?token=\(token)") else { return }
 
             var req = URLRequest(url: url)

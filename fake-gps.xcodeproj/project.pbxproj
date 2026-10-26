@@ -305,7 +305,7 @@
 					"$(PROJECT_DIR)/EmbeddedPython/python/lib/python3.11/site-packages/qh3",
 					"$(PROJECT_DIR)/EmbeddedPython/python/lib/python3.11/site-packages/pydantic_core",
 				);
-				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = "$(TARGET_NAME)";

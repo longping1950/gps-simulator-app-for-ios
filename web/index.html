@@ -10,6 +10,37 @@
         body, html { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         #map { height: 100%; width: 100%; z-index: 1; }
 
+        /* 頂部置中搜尋列 */
+        .top-search-bar {
+            position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 1000;
+            background: rgba(255, 255, 255, 0.96); padding: 6px 10px;
+            border-radius: 24px; box-shadow: 0 4px 18px rgba(0,0,0,0.16);
+            display: flex; align-items: center; gap: 6px;
+            width: clamp(240px, 32vw, 400px);
+        }
+        .top-search-input {
+            flex: 1; border: none; outline: none; background: transparent;
+            font-size: 13px; color: #1f2937; padding: 4px 6px;
+        }
+        .top-search-btn {
+            background: #007aff; color: white; border: none; border-radius: 16px;
+            padding: 5px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+            transition: 0.2s; white-space: nowrap;
+        }
+        .top-search-btn:hover { opacity: 0.9; }
+        .search-results-dropdown {
+            position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+            background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            max-height: 260px; overflow-y: auto; display: none; flex-direction: column;
+            border: 1px solid #e5e7eb; z-index: 1100;
+        }
+        .search-result-item {
+            padding: 8px 12px; border-bottom: 1px solid #f3f4f6; font-size: 12px;
+            display: flex; justify-content: space-between; align-items: center; gap: 8px;
+        }
+        .search-result-item:last-child { border-bottom: none; }
+        .search-result-item:hover { background: #f8fafc; }
+
         /* 浮動面板基礎樣式與自適應 */
         .left-panel {
             position: absolute; top: 16px; left: 16px; z-index: 1000;
@@ -113,6 +144,48 @@
         .map-floating-btn.active { background: #007aff; color: white; border-color: #007aff; }
         .crosshair-cursor { cursor: crosshair !important; }
 
+        /* 🐞 右下角 Debug 按鈕與紅點徽章 */
+        .bottom-right-debug {
+            position: absolute; bottom: 24px; right: 16px; z-index: 1000;
+        }
+        .debug-floating-btn {
+            background: rgba(30, 41, 59, 0.94); color: white; border: 1px solid rgba(255,255,255,0.2);
+            padding: 9px 14px; border-radius: 22px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 6px;
+            cursor: pointer; transition: 0.2s; position: relative;
+        }
+        .debug-floating-btn:hover { background: #0f172a; transform: translateY(-2px); }
+        .debug-badge {
+            background: #ef4444; color: white; border-radius: 10px; padding: 1px 6px;
+            font-size: 10px; font-weight: bold; min-width: 14px; text-align: center;
+            display: none; box-shadow: 0 0 0 2px white;
+        }
+        .debug-log-card {
+            background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #ef4444;
+            border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px;
+        }
+        .debug-log-card.warn { border-left-color: #f59e0b; }
+        .debug-solution-box {
+            background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;
+            padding: 8px 10px; margin-top: 6px; color: #1e3a8a; font-size: 12px;
+            line-height: 1.5; white-space: pre-line;
+        }
+
+        /* 🕹️ 360° 虛擬搖桿樣式 */
+        .joystick-wrap {
+            width: 104px; height: 104px; border-radius: 50%;
+            background: radial-gradient(circle, #ffffff 0%, #e5e7eb 100%);
+            border: 2px solid #cbd5e1; margin: 6px auto; position: relative;
+            touch-action: none; user-select: none; box-shadow: inset 0 2px 6px rgba(0,0,0,0.1);
+        }
+        .joystick-knob {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: linear-gradient(135deg, #5856d6, #007aff);
+            position: absolute; top: 34px; left: 34px;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.3); cursor: grab;
+        }
+        .joystick-knob:active { cursor: grabbing; }
+
         /* Toast 提示條 */
         #toast {
             position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
@@ -129,8 +202,8 @@
             background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;
         }
         .modal-card {
-            background: white; border-radius: 14px; max-width: 540px; width: 90%;
-            padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 85vh; display: flex; flex-direction: column;
+            background: white; border-radius: 14px; max-width: 560px; width: 92%;
+            padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 85vh; display: flex; flex-direction: column;
         }
         .step-block { background: #f8f9fa; border-left: 4px solid #007aff; padding: 10px 14px; margin: 8px 0; border-radius: 4px; font-size: 13px; line-height: 1.6; }
 
@@ -171,6 +244,14 @@
     </style>
 </head>
 <body>
+    <!-- 🔍 頂部地址 / 地標 / 座標快速搜尋列 -->
+    <div class="top-search-bar" id="top-search-bar">
+        <span style="font-size:14px; padding-left:4px;">🔍</span>
+        <input type="text" id="map-search-input" class="top-search-input" placeholder="搜尋地標、地址或輸入 緯度, 經度..." onkeydown="if(event.key==='Enter') searchLocation()" />
+        <button class="top-search-btn" onclick="searchLocation()">搜尋</button>
+        <div class="search-results-dropdown" id="search-results-dropdown"></div>
+    </div>
+
     <div class="left-panel" id="panel-left">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <div style="display:flex; align-items:center; gap:6px; cursor:pointer;" onclick="togglePanel('left')">
@@ -199,14 +280,18 @@
             <div class="info-row">離真實起點: <b id="dist-info">0.0 m</b></div>
 
             <div id="task-calc-panel" class="task-card" style="display:none;">
-                <div style="font-weight:bold; color:#007aff; margin-bottom:4px;">⏱️ 後端巡航進度</div>
+                <div id="task-card-title" style="font-weight:bold; color:#007aff; margin-bottom:4px;">⏱️ 後端巡航進度</div>
                 <div style="display:flex; justify-content:space-between;">
-                    <span>剩餘總距離:</span>
+                    <span id="task-dist-label">剩餘總距離:</span>
                     <b id="calc-total-dist">0 m</b>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-top:2px;">
-                    <span>預估耗時:</span>
+                    <span>預估耗時 (依設定速度):</span>
                     <b id="calc-eta-time">0 分 0 秒</b>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:2px; color:#4b5563;">
+                    <span>即時推進時速:</span>
+                    <b id="calc-actual-speed">0.0 km/h</b>
                 </div>
                 <div id="calc-loop-progress" style="display:none; color:#ff9500; margin-top:2px; font-weight:bold;">
                     循環進度: <span id="loop-current-idx">1</span> / <span id="loop-target-count">1</span> 圈
@@ -214,22 +299,26 @@
             </div>
 
             <div class="info-row" id="route-remain-row" style="display:none; color: #ff9500; font-weight:bold;">
-                當前航點距離: <span id="route-remain">0 m</span> <span id="pause-badge" style="display:none; color:#e02424;">(停等中...)</span>
+                <span id="route-remain-label">當前航點距離:</span> <span id="route-remain">0 m</span> <span id="pause-badge" style="display:none; color:#e02424;">(停等中...)</span>
             </div>
 
             <button id="btn-toggle-manual" class="btn btn-tool" onclick="toggleManualRemoteMode()" disabled>🎮 啟用手動遙控微調 (需連線)</button>
 
             <div id="manual-remote-panel" style="display:none; margin-top: 8px; text-align: center; background: #f0f0f5; padding: 10px; border-radius: 8px; border: 1px solid #d1d1d6;">
-                <div style="font-size: 11px; color: #5856d6; font-weight: bold; margin-bottom: 6px;">🕹️ 遙控中：支援 W/A/S/D 或下方按鈕</div>
+                <div style="font-size: 11px; color: #5856d6; font-weight: bold; margin-bottom: 4px;">🕹️ 360° 拖曳搖桿 / W,A,S,D / 方向鈕</div>
+                <div class="joystick-wrap" id="joystick-wrap">
+                    <div class="joystick-knob" id="joystick-knob"></div>
+                </div>
+                <div id="joystick-info" style="font-size: 10px; color: #6b7280; margin-bottom: 6px;">拖曳圓球可 360° 無段方向移動</div>
                 <div style="display: grid; grid-template-columns: 44px 44px 44px; gap: 4px; justify-content: center;">
                     <div></div>
-                    <button class="btn btn-tool" style="padding:8px; margin:0; font-size:14px;" onclick="manualMove(0, 1)">▲</button>
+                    <button class="btn btn-tool" style="padding:6px; margin:0; font-size:13px;" onclick="manualMove(0, 1)">▲</button>
                     <div></div>
-                    <button class="btn btn-tool" style="padding:8px; margin:0; font-size:14px;" onclick="manualMove(-1, 0)">◀</button>
-                    <button class="btn btn-tool" style="padding:8px; margin:0; font-size:14px;" onclick="recenterMap()">🎯</button>
-                    <button class="btn btn-tool" style="padding:8px; margin:0; font-size:14px;" onclick="manualMove(1, 0)">▶</button>
+                    <button class="btn btn-tool" style="padding:6px; margin:0; font-size:13px;" onclick="manualMove(-1, 0)">◀</button>
+                    <button class="btn btn-tool" style="padding:6px; margin:0; font-size:13px;" onclick="recenterMap()">🎯</button>
+                    <button class="btn btn-tool" style="padding:6px; margin:0; font-size:13px;" onclick="manualMove(1, 0)">▶</button>
                     <div></div>
-                    <button class="btn btn-tool" style="padding:8px; margin:0; font-size:14px;" onclick="manualMove(0, -1)">▼</button>
+                    <button class="btn btn-tool" style="padding:6px; margin:0; font-size:13px;" onclick="manualMove(0, -1)">▼</button>
                     <div></div>
                 </div>
             </div>
@@ -242,7 +331,7 @@
 
             <div style="margin-top: 10px;">
                 <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                    <span>速度上限:</span>
+                    <span>速度上限 (絕不超速):</span>
                     <b><span id="speed-label">18</span> km/h</b>
                 </div>
                 <input type="range" id="speed-slider" min="1" max="100" step="1" value="18" style="width: 100%; margin-top: 4px;" />
@@ -256,14 +345,14 @@
 
             <div style="margin-top: 8px;">
                 <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                    <span>擬真降速程度:</span>
+                    <span>擬真降速與微幅抖動:</span>
                     <b><span id="random-label">0</span> / 10</b>
                 </div>
                 <input type="range" id="random-slider" min="0" max="10" step="1" value="0" style="width: 100%; margin-top: 4px;" />
             </div>
 
             <div id="stop-group" style="display:none; border-top: 1px solid #e5e5ea; margin-top: 10px; padding-top: 8px;">
-                <button id="btn-dynamic-stop" class="btn btn-stop" onclick="handleDynamicStop()">平滑回歸起點並結束</button>
+                <button id="btn-dynamic-stop" class="btn btn-stop" onclick="handleDynamicStop()">平滑回歸起點並結束 (依設定速度)</button>
             </div>
         </div>
     </div>
@@ -302,13 +391,20 @@
                     </div>
                 </div>
 
-                <div class="list-container" id="waypoints-list" style="max-height:28vh;">
+                <div class="list-container" id="waypoints-list" style="max-height:26vh;">
                     <div style="color:#888; text-align:center; padding:12px; font-size:11px;">尚無設定航點</div>
                 </div>
 
                 <div style="display:flex; gap:4px; margin-top:6px;">
                     <input type="text" id="route-name-input" placeholder="路線名稱..." style="flex:1; padding:4px 6px; border:1px solid #ccc; border-radius:6px; font-size:11px;" />
-                    <button class="btn btn-tool" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" onclick="saveCurrentRoute()">💾</button>
+                    <button class="btn btn-tool" style="width:auto; margin:0; padding:4px 8px; font-size:11px;" title="儲存至常用路線庫" onclick="saveCurrentRoute()">💾</button>
+                </div>
+
+                <!-- 📂 GPX / JSON 路線匯入與匯出按鈕列 -->
+                <div style="display:flex; gap:4px; margin-top:6px;">
+                    <input type="file" id="gpx-file-input" accept=".gpx,.json" style="display:none;" onchange="handleRouteFileImport(event)" />
+                    <button class="btn btn-tool" style="margin:0; padding:5px 6px; font-size:11px;" onclick="document.getElementById('gpx-file-input').click()">📥 匯入 GPX/JSON</button>
+                    <button class="btn btn-tool" style="margin:0; padding:5px 6px; font-size:11px;" onclick="exportCurrentRouteGpx()">📤 匯出 GPX</button>
                 </div>
             </div>
 
@@ -323,15 +419,49 @@
         <div class="map-floating-btn" title="立即回到定位中心" onclick="recenterMap()">🎯</div>
     </div>
 
+    <!-- 🐞 右下角 Debug 按鈕 -->
+    <div class="bottom-right-debug">
+        <button class="debug-floating-btn" onclick="openDebugModal()" title="查看錯誤紀錄與配套排解措施">
+            <span>🐞 Debug</span>
+            <span id="debug-badge" class="debug-badge">0</span>
+        </button>
+    </div>
+
     <div id="toast"></div>
     
     <!-- 獨立錯誤確認彈窗 -->
     <div id="error-modal" class="modal-overlay" style="z-index: 2500;">
-        <div class="modal-card" style="max-width: 400px; text-align: center;">
+        <div class="modal-card" style="max-width: 420px; text-align: center;">
             <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
             <h3 id="error-modal-title" style="margin: 0 0 10px 0; color: #ef4444;">連線失敗</h3>
-            <p id="error-modal-msg" style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-bottom: 18px; word-break: break-word;"></p>
-            <button class="btn btn-start" style="width: 100%; margin: 0;" onclick="closeErrorModal()">我知道了</button>
+            <p id="error-modal-msg" style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-bottom: 14px; word-break: break-word; white-space: pre-line;"></p>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-tool" style="flex:1; margin:0;" onclick="closeErrorModal(); openDebugModal();">🐞 查看配套措施</button>
+                <button class="btn btn-start" style="flex:1; margin:0;" onclick="closeErrorModal()">我知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🐞 診斷與錯誤紀錄中心彈窗 -->
+    <div id="debug-modal" class="modal-overlay" style="z-index: 2400;" onclick="closeDebugModal(event)">
+        <div class="modal-card" style="max-width: 620px;" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <h3 style="margin:0;">🐞 系統診斷與錯誤紀錄中心</h3>
+                    <span id="debug-total-label" style="font-size:12px; color:#6b7280;">(0 筆紀錄)</span>
+                </div>
+                <button class="collapse-toggle-btn" onclick="closeDebugModal()">✕</button>
+            </div>
+
+            <div id="debug-logs-container" style="overflow-y:auto; flex:1; margin:12px 0; max-height: 55vh; padding-right:4px;">
+                <div style="color:#888; text-align:center; padding:24px; font-size:13px;">🎉 目前運作正常，尚無任何錯誤紀錄</div>
+            </div>
+
+            <div style="display:flex; gap:8px; border-top: 1px solid #eee; padding-top: 10px;">
+                <button class="btn btn-tool" style="flex:1; margin:0;" onclick="copyDebugReport()">📋 複製診斷報告</button>
+                <button class="btn btn-tool" style="flex:1; margin:0; color:#ef4444;" onclick="clearDebugLogs()">🗑️ 清空紀錄</button>
+                <button class="btn btn-start" style="flex:1; margin:0;" onclick="closeDebugModal()">關閉</button>
+            </div>
         </div>
     </div>
 
@@ -346,7 +476,7 @@
             <div class="guide-scroll-container">
                 <div class="step-block" style="border-left-color: #ff9500; margin-top: 0;">
                     <b>💡 使用方式說明：</b><br>
-                    首次使用時，請先將 iPhone 透過傳輸線連接至 Mac 並在手機上點選「信任這部電腦」，接著依下方步驟啟用「開發者模式」。完成初次設定後，後續建議在相同 Wi-Fi 環境下使用網路連線，操作更自由！以下為開啟開發者模式的具體步驟：
+                    首次使用時，請先將 iPhone 透過傳輸線連接至 Mac 並在手機上點選「信任這部電腦」，接著依下方步驟啟用「開發者模式」。初次連線時系統會自動配置開發者映像檔並開啟 Wi-Fi 支援，完成後即可在相同 Wi-Fi 環境下使用無線連線！
                 </div>
 
                 <!-- 步驟 1 -->
@@ -422,7 +552,7 @@
             }
         })();
 
-        let map = L.map('map').setView([22.549088, 120.354109], 16);
+        let map = L.map('map', { zoomControl: false }).setView([22.549088, 120.354109], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
         let originMarker = null;
@@ -431,6 +561,7 @@
         let waypoints = [];
         let routePolyline = null;
         let loopPolyline = null;
+        let returnHomePolyline = null;
         let savedRoutes = [];
         let currentRightView = 'waypoints';
 
@@ -443,10 +574,18 @@
         let isManualModeActive = false;
         let isSimulating = false;
         let isStopping = false;
+        let isReturningHome = false;
+        let wasReturningHome = false;
         let isCruising = false;
         let currentPos = null;
         let originPos = null;
         let connectedUdids = [];
+
+        // 🐞 Debug 追蹤變數
+        let cachedDebugLogs = [];
+        let lastSeenDebugId = 0;
+        let latestServerDebugId = 0;
+        let isDebugModalOpen = false;
 
         function showToast(msg, isError = false) {
             let t = document.getElementById('toast');
@@ -457,6 +596,199 @@
 
         function openGuide() { document.getElementById('guide-modal').style.display = 'flex'; }
         function closeGuide() { document.getElementById('guide-modal').style.display = 'none'; }
+
+        // --- 🐞 Debug 錯誤紀錄與配套措施中心 ---
+        async function reportClientDebugLog(title, errorMsg, stage = "前端操作", level = "ERROR", solution = null) {
+            try {
+                await fetch('/api/debug-logs/report', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        title: title,
+                        error: String(errorMsg),
+                        stage: stage,
+                        level: level,
+                        solution: solution
+                    })
+                });
+                await fetchDebugLogs();
+            } catch (e) {}
+        }
+
+        async function fetchDebugLogs() {
+            try {
+                let res = await fetch('/api/debug-logs');
+                if (!res.ok) return;
+                let data = await res.json();
+                cachedDebugLogs = data.logs || [];
+                latestServerDebugId = data.latest_id || 0;
+                updateDebugBadge();
+                if (isDebugModalOpen) {
+                    lastSeenDebugId = latestServerDebugId;
+                    updateDebugBadge();
+                    renderDebugLogs();
+                }
+            } catch (e) {}
+        }
+
+        function updateDebugBadge() {
+            let badge = document.getElementById('debug-badge');
+            let unreadCount = cachedDebugLogs.filter(item => item.id > lastSeenDebugId).length;
+            let totalCount = cachedDebugLogs.length;
+            if (unreadCount > 0) {
+                badge.style.display = 'inline-block';
+                badge.style.background = '#ef4444';
+                badge.innerText = unreadCount > 99 ? '99+' : unreadCount;
+            } else if (totalCount > 0) {
+                badge.style.display = 'inline-block';
+                badge.style.background = '#64748b';
+                badge.innerText = totalCount;
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        async function openDebugModal() {
+            isDebugModalOpen = true;
+            document.getElementById('debug-modal').style.display = 'flex';
+            await fetchDebugLogs();
+            lastSeenDebugId = latestServerDebugId;
+            updateDebugBadge();
+            renderDebugLogs();
+        }
+
+        function closeDebugModal(e) {
+            if (e && e.target && e.target.id !== 'debug-modal') return;
+            isDebugModalOpen = false;
+            document.getElementById('debug-modal').style.display = 'none';
+        }
+
+        function escapeHtml(str) {
+            return String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function renderDebugLogs() {
+            let container = document.getElementById('debug-logs-container');
+            let countLabel = document.getElementById('debug-total-label');
+            countLabel.innerText = `(共 ${cachedDebugLogs.length} 筆紀錄)`;
+
+            if (cachedDebugLogs.length === 0) {
+                container.innerHTML = '<div style="color:#888; text-align:center; padding:28px; font-size:13px;">🎉 目前系統運作正常，尚無任何錯誤紀錄</div>';
+                return;
+            }
+
+            let html = '';
+            cachedDebugLogs.forEach(log => {
+                let isWarn = log.level === 'WARN';
+                let levelBadgeBg = isWarn ? '#fef3c7' : '#fee2e2';
+                let levelBadgeColor = isWarn ? '#b45309' : '#b91c1c';
+                html += `
+                <div class="debug-log-card ${isWarn ? 'warn' : ''}">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="background:${levelBadgeBg}; color:${levelBadgeColor}; padding:1px 6px; border-radius:4px; font-weight:bold; font-size:10px;">${escapeHtml(log.level)}</span>
+                            <b style="font-size:13px; color:#111827;">${escapeHtml(log.title)}</b>
+                        </div>
+                        <span style="font-size:11px; color:#6b7280; font-family:monospace;">${escapeHtml(log.timestamp)} · ${escapeHtml(log.stage)}</span>
+                    </div>
+                    <div style="font-family:monospace; font-size:11px; color:#4b5563; background:#fff; padding:6px 8px; border-radius:4px; border:1px solid #e5e7eb; word-break:break-all; white-space:pre-wrap;">${escapeHtml(log.error)}</div>
+                    <div class="debug-solution-box">
+                        <b>🛠️ 建議配套措施：</b>\n${escapeHtml(log.solution)}
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        async function clearDebugLogs() {
+            await fetch('/api/debug-logs', { method: 'DELETE' });
+            cachedDebugLogs = [];
+            lastSeenDebugId = 0;
+            latestServerDebugId = 0;
+            updateDebugBadge();
+            renderDebugLogs();
+            showToast("已清空 Debug 錯誤紀錄");
+        }
+
+        function copyDebugReport() {
+            if (cachedDebugLogs.length === 0) {
+                showToast("目前沒有錯誤紀錄可複製");
+                return;
+            }
+            let text = cachedDebugLogs.map(l =>
+                `[${l.timestamp}] [${l.level}] (${l.stage}) ${l.title}\n錯誤詳情: ${l.error}\n配套措施:\n${l.solution}\n`
+            ).join('\n------------------------\n');
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("已複製診斷報告至剪貼簿！");
+            });
+        }
+
+        // --- 🔍 地圖地址 / 地標 / 座標搜尋 ---
+        async function searchLocation() {
+            let input = document.getElementById('map-search-input');
+            let dropdown = document.getElementById('search-results-dropdown');
+            let q = input.value.trim();
+            if (!q) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            dropdown.style.display = 'flex';
+            dropdown.innerHTML = '<div style="padding:10px; text-align:center; color:#6b7280; font-size:12px;">搜尋中...</div>';
+
+            try {
+                let res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+                let data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.detail || '搜尋失敗');
+                }
+                let list = data.results || [];
+                if (list.length === 0) {
+                    dropdown.innerHTML = '<div style="padding:10px; text-align:center; color:#888; font-size:12px;">找不到相符的地標或座標</div>';
+                    return;
+                }
+                let html = '';
+                list.forEach((item, i) => {
+                    let shortName = escapeHtml(item.display_name);
+                    html += `
+                    <div class="search-result-item">
+                        <div style="flex:1; overflow:hidden; text-overflow:ellipsis;" title="${shortName}">
+                            <div style="font-weight:600; color:#1f2937;">${shortName}</div>
+                            <div style="font-size:10px; color:#6b7280; font-family:monospace;">${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}</div>
+                        </div>
+                        <div style="display:flex; gap:4px; flex-shrink:0;">
+                            <button class="btn btn-tool" style="width:auto; margin:0; padding:3px 7px; font-size:11px;" onclick="jumpToSearchResult(${item.lat}, ${item.lon})">👁️ 視角</button>
+                            <button class="btn btn-start" style="width:auto; margin:0; padding:3px 7px; font-size:11px;" onclick="addSearchResultAsWaypoint(${item.lat}, ${item.lon})">➕ 航點</button>
+                        </div>
+                    </div>`;
+                });
+                dropdown.innerHTML = html;
+            } catch (err) {
+                dropdown.innerHTML = `<div style="padding:10px; text-align:center; color:#ef4444; font-size:12px;">搜尋失敗: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        function jumpToSearchResult(lat, lon) {
+            map.setView([lat, lon], 16, { animate: true });
+            document.getElementById('search-results-dropdown').style.display = 'none';
+        }
+
+        function addSearchResultAsWaypoint(lat, lon) {
+            addWaypointAt(lat, lon);
+            map.setView([lat, lon], 16, { animate: true });
+            document.getElementById('search-results-dropdown').style.display = 'none';
+            showToast("已將搜尋位置加入航點清單！");
+        }
+
+        document.addEventListener('click', e => {
+            const bar = document.getElementById('top-search-bar');
+            if (bar && !bar.contains(e.target)) {
+                document.getElementById('search-results-dropdown').style.display = 'none';
+            }
+        });
 
         function toggleManualRemoteMode() {
             if (connectedUdids.length === 0) return;
@@ -503,7 +835,7 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
             });
-            fetchStatus(); // 🎯 立即向後端拉取最新計算出的 ETA 時間！
+            fetchStatus();
         }
 
         document.getElementById('speed-slider').addEventListener('change', async e => {
@@ -515,7 +847,7 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ speed_kmh: val })
             });
-            fetchStatus(); // 🎯 滑桿放開後立即刷新 ETA
+            fetchStatus();
         });
 
         function recenterMap() {
@@ -531,6 +863,7 @@
             document.getElementById('error-modal-title').innerText = title;
             document.getElementById('error-modal-msg').innerText = message;
             document.getElementById('error-modal').style.display = 'flex';
+            fetchDebugLogs();
         }
 
         function closeErrorModal() {
@@ -638,8 +971,10 @@
                 renderSavedRoutes();
             } catch(e) {
                 showToast("後端初始化載入失敗", true);
+                reportClientDebugLog("後端初始化載入失敗", e.message || String(e), "頁面初始化");
             }
             refreshDevices();
+            fetchDebugLogs();
         }
 
         function toggleRightView() {
@@ -665,7 +1000,7 @@
         function renderWaypointsList() {
             let container = document.getElementById('waypoints-list');
             if (waypoints.length === 0) {
-                container.innerHTML = '<div style="color:#888; text-align:center; padding:15px;">尚無設定航點<br><small>點擊上方按鈕在地圖選點</small></div>';
+                container.innerHTML = '<div style="color:#888; text-align:center; padding:15px;">尚無設定航點<br><small>點擊上方按鈕在地圖選點或匯入 GPX</small></div>';
                 return;
             }
 
@@ -682,6 +1017,18 @@
             container.innerHTML = html;
         }
 
+        function addWaypointAt(lat, lng) {
+            let idx = waypoints.length + 1;
+            let m = L.circleMarker([lat, lng], {
+                radius: 6, color: '#ff9500', fillColor: '#ff9500', fillOpacity: 0.8
+            }).addTo(map).bindTooltip(`點 ${idx}`, { permanent: true, direction: 'top' });
+
+            waypoints.push({ lat: lat, lng: lng, marker: m });
+            renderWaypointsList();
+            updatePolyline();
+            checkCruiseButtons();
+        }
+
         function removeWaypoint(idx) {
             map.removeLayer(waypoints[idx].marker);
             waypoints.splice(idx, 1);
@@ -691,6 +1038,89 @@
             renderWaypointsList();
             updatePolyline();
             checkCruiseButtons();
+        }
+
+        // --- 📂 GPX / JSON 匯入與匯出 ---
+        function exportCurrentRouteGpx() {
+            if (waypoints.length === 0) {
+                showToast("目前沒有航點可供匯出！", true);
+                return;
+            }
+            let routeName = document.getElementById('route-name-input').value.trim() || `SIM-GPS-Route-${Date.now()}`;
+            let gpxLines = [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<gpx version="1.1" creator="SIM-GPS macOS" xmlns="http://www.topografix.com/GPX/1/1">',
+                `  <metadata><name>${escapeHtml(routeName)}</name></metadata>`,
+                '  <rte>',
+                `    <name>${escapeHtml(routeName)}</name>`
+            ];
+            waypoints.forEach((wp, idx) => {
+                gpxLines.push(`    <rtept lat="${wp.lat.toFixed(6)}" lon="${wp.lng.toFixed(6)}"><name>Point ${idx + 1}</name></rtept>`);
+            });
+            gpxLines.push('  </rte>', '</gpx>');
+
+            let blob = new Blob([gpxLines.join('\n')], { type: 'application/gpx+xml;charset=utf-8' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `${routeName}.gpx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast(`已匯出 GPX 路線 (${waypoints.length} 個航點)`);
+        }
+
+        function handleRouteFileImport(event) {
+            let file = event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+
+            let reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let content = e.target.result;
+                    let importedPts = [];
+
+                    if (file.name.toLowerCase().endsWith('.json')) {
+                        let parsed = JSON.parse(content);
+                        let arr = Array.isArray(parsed) ? parsed : (parsed.waypoints || []);
+                        arr.forEach(pt => {
+                            let lat = parseFloat(pt.lat ?? pt.latitude);
+                            let lng = parseFloat(pt.lng ?? pt.lon ?? pt.longitude);
+                            if (!isNaN(lat) && !isNaN(lng)) importedPts.push({ lat, lng });
+                        });
+                    } else {
+                        let parser = new DOMParser();
+                        let xmlDoc = parser.parseFromString(content, "text/xml");
+                        let nodes = xmlDoc.querySelectorAll("rtept, trkpt, wpt");
+                        nodes.forEach(node => {
+                            let lat = parseFloat(node.getAttribute("lat"));
+                            let lng = parseFloat(node.getAttribute("lon"));
+                            if (!isNaN(lat) && !isNaN(lng)) importedPts.push({ lat, lng });
+                        });
+                    }
+
+                    if (importedPts.length === 0) {
+                        throw new Error("檔案中未找到有效的經緯度航點 (需包含 rtept/trkpt/wpt 或 JSON waypoints)");
+                    }
+
+                    clearAllRoute();
+                    importedPts.forEach(pt => addWaypointAt(pt.lat, pt.lng));
+                    map.panTo([importedPts[0].lat, importedPts[0].lng]);
+                    showToast(`成功匯入 ${importedPts.length} 個航點！`);
+                } catch (err) {
+                    showToast("匯入路線檔案失敗", true);
+                    reportClientDebugLog(
+                        "匯入 GPX/JSON 路線檔失敗",
+                        err.message || String(err),
+                        "路線匯入",
+                        "WARN",
+                        "請確認匯入的檔案為標準 GPX 1.1 格式（含 <wpt>、<rtept> 或 <trkpt> 標籤）或包含 [{lat, lng}] 的 JSON 檔案。"
+                    );
+                }
+            };
+            reader.readAsText(file);
         }
 
         function renderSavedRoutes() {
@@ -705,7 +1135,7 @@
                 html += `
                 <div class="route-card">
                     <div>
-                        <div style="font-weight:bold; font-size:13px;">${r.name}</div>
+                        <div style="font-weight:bold; font-size:13px;">${escapeHtml(r.name)}</div>
                         <div style="font-size:11px; color:#888;">航點數量: ${r.waypoints.length} 個</div>
                     </div>
                     <div style="display:flex; gap:4px;">
@@ -734,21 +1164,13 @@
             if (!target) return;
 
             clearAllRoute();
-            target.waypoints.forEach((pt, idx) => {
-                let m = L.circleMarker([pt.lat, pt.lng], {
-                    radius: 6, color: '#ff9500', fillColor: '#ff9500', fillOpacity: 0.8
-                }).addTo(map).bindTooltip(`點 ${idx + 1}`, { permanent: true, direction: 'top' });
-
-                waypoints.push({ lat: pt.lat, lng: pt.lng, marker: m });
-            });
+            target.waypoints.forEach(pt => addWaypointAt(pt.lat, pt.lng));
 
             if (waypoints.length > 0) {
                 map.panTo([waypoints[0].lat, waypoints[0].lng]);
             }
 
-            updatePolyline();
             toggleRightView();
-            checkCruiseButtons();
             showToast(`已載入路線: ${target.name}`);
         }
 
@@ -794,27 +1216,16 @@
                 mapContainer.classList.add('crosshair-cursor');
             } else {
                 btn.classList.remove('active');
-                btn.innerText = '🎯 點擊地圖增加航點';
+                btn.innerText = '🎯 地圖選點';
                 mapContainer.classList.remove('crosshair-cursor');
             }
         }
 
         map.on('click', e => {
             if (!isPickingRoute || isStopping) return;
-
-            let pt = e.latlng;
-            let idx = waypoints.length + 1;
-            let m = L.circleMarker([pt.lat, pt.lng], {
-                radius: 6, color: '#ff9500', fillColor: '#ff9500', fillOpacity: 0.8
-            }).addTo(map).bindTooltip(`點 ${idx}`, { permanent: true, direction: 'top' });
-
-            waypoints.push({ lat: pt.lat, lng: pt.lng, marker: m });
-            renderWaypointsList();
-            updatePolyline();
-            checkCruiseButtons();
+            addWaypointAt(e.latlng.lat, e.latlng.lng);
         });
 
-        // 🎯【徹底修復牽引線 Bug】：只繪製使用者規劃的點 1 ➔ 點 2 ➔ 點 N，不夾帶 currentPos
         function updatePolyline() {
             if (routePolyline) map.removeLayer(routePolyline);
             if (loopPolyline) map.removeLayer(loopPolyline);
@@ -822,7 +1233,6 @@
             if (waypoints.length === 0) return;
 
             let latlngs = [];
-            // 只依序添加航點，絕不將當前位置注入到航線陣列頭部
             waypoints.forEach(wp => latlngs.push([wp.lat, wp.lng]));
 
             if (latlngs.length >= 2) {
@@ -831,7 +1241,6 @@
                 }).addTo(map);
             }
 
-            // 循環模式下的頭尾閉環連線
             if (loopMode !== 'none' && waypoints.length >= 2) {
                 let first = waypoints[0];
                 let last = waypoints[waypoints.length - 1];
@@ -858,11 +1267,15 @@
             let teleBtn = document.getElementById('btn-teleport');
             let stopBtn = document.getElementById('btn-stop-cruise');
 
-            if (isCruising) {
+            if (isStopping || isReturningHome) {
+                startBtn.style.display = 'none';
+                teleBtn.style.display = 'none';
+                stopBtn.style.display = 'none';
+            } else if (isCruising) {
                 startBtn.style.display = 'none';
                 teleBtn.style.display = 'none';
                 stopBtn.style.display = 'block';
-            } else if (isSimulating && !isStopping && waypoints.length > 0) {
+            } else if (isSimulating && waypoints.length > 0) {
                 startBtn.style.display = 'block';
                 teleBtn.style.display = 'block';
                 stopBtn.style.display = 'none';
@@ -901,13 +1314,13 @@
                 html += `
                 <div class="device-item">
                     <div>
-                        <div style="font-weight:bold;">${d.name} <span class="badge-conn ${connClass}">${d.connection}</span></div>
-                        <div style="font-size:10px; color:#888; font-family:monospace;">${shortUdid}</div>
+                        <div style="font-weight:bold;">${escapeHtml(d.name)} <span class="badge-conn ${connClass}">${escapeHtml(d.connection)}</span></div>
+                        <div style="font-size:10px; color:#888; font-family:monospace;">${escapeHtml(shortUdid)}</div>
                     </div>
                     <div>
                         ${isConn ? 
                             `<button class="btn btn-tool" style="width:auto; padding:3px 6px; margin:0; color:#ff3b30;" onclick="disconnectSingleDevice('${d.udid}')">中斷</button>` :
-                            `<button class="btn btn-start" style="width:auto; padding:3px 8px; margin:0; font-size:11px;" onclick="connectSingleDevice('${d.udid}')">連線</button>`
+                            `<button class="btn btn-start" style="width:auto; padding:3px 8px; margin:0; font-size:11px;" ${window.isConnectingDevice ? 'disabled' : ''} onclick="connectSingleDevice('${d.udid}', this)">${window.isConnectingDevice ? '連線中...' : '連線'}</button>`
                         }
                     </div>
                 </div>`;
@@ -915,11 +1328,18 @@
             container.innerHTML = html;
         }
 
-        async function connectSingleDevice(udid) {
+        async function connectSingleDevice(udid, btnEl) {
+            if (window.isConnectingDevice) return;
+            window.isConnectingDevice = true;
+            if (btnEl) {
+                btnEl.disabled = true;
+                btnEl.innerText = '連線中...';
+            }
+
             let customLat = waypoints.length > 0 ? waypoints[0].lat : (currentPos ? currentPos.lat : null);
             let customLon = waypoints.length > 0 ? waypoints[0].lng : (currentPos ? currentPos.lon : null);
 
-            showToast("正在建立 RSD 隧道長連接...");
+            showToast("正在建立連線與檢查開發者映像檔 (首次連線約需 15~30 秒)...");
             try {
                 let res = await fetch('/api/device/connect', {
                     method: 'POST',
@@ -945,6 +1365,10 @@
                 }
             } catch(e) {
                 showErrorDialog("連線發生異常", "無法發送連線請求，請確認後端服務是否正常運作。");
+                reportClientDebugLog("發送連線請求失敗", e.message || String(e), "裝置連線");
+            } finally {
+                window.isConnectingDevice = false;
+                refreshDevices();
             }
         }
 
@@ -954,6 +1378,8 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ udid: udid })
             });
+            if (returnHomePolyline) { map.removeLayer(returnHomePolyline); returnHomePolyline = null; }
+            if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
             showToast("已中斷長連接");
             setTimeout(refreshDevices, 300);
             setTimeout(fetchStatus, 300);
@@ -963,20 +1389,42 @@
             try {
                 let res = await fetch('/api/status');
                 let data = await res.json();
+
+                let prevReturning = isReturningHome;
                 isSimulating = data.is_simulating;
                 isStopping = data.is_stopping;
+                isReturningHome = data.is_returning_home || data.is_stopping;
                 isCruising = data.is_cruising;
                 connectedUdids = data.connected_udids || [];
-                
-                document.getElementById('sim-status').innerText = isStopping ? '回歸起點中...' : (isSimulating ? (isCruising ? '後端巡航推進中 🚀' : '模擬鎖定中') : '未啟動');
-                document.getElementById('sim-status').style.color = isStopping ? '#ff9500' : (isSimulating ? '#34c759' : '#8e8e93');
-                document.getElementById('connected-count').innerText = connectedUdids.length > 0 ? '已連線 (長連接保持)' : '未連線';
+                let isConnecting = data.is_connecting;
+                let connectStage = data.connect_stage || '連線初始化中...';
+
+                // 檢查後端是否有新增的 Debug 錯誤紀錄
+                if (data.latest_debug_id && data.latest_debug_id !== latestServerDebugId) {
+                    fetchDebugLogs();
+                }
+
+                // 若剛完成平滑返航並自動斷開連線，清理地圖上的模擬標記與返航線
+                if (prevReturning && !isSimulating && !isReturningHome) {
+                    if (returnHomePolyline) { map.removeLayer(returnHomePolyline); returnHomePolyline = null; }
+                    if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
+                    refreshDevices();
+                    showToast("🏠 已依設定速度平滑返航並恢復真實定位！");
+                }
+
+                document.getElementById('sim-status').innerText = isReturningHome
+                    ? '🏠 依設定速度返航中...'
+                    : (isConnecting
+                        ? connectStage
+                        : (isSimulating ? (isCruising ? '後端巡航推進中 🚀' : '模擬鎖定中') : '未啟動'));
+                document.getElementById('sim-status').style.color = (isReturningHome || isConnecting) ? '#ff9500' : (isSimulating ? '#34c759' : '#8e8e93');
+                document.getElementById('connected-count').innerText = connectedUdids.length > 0 ? '已連線 (長連接保持)' : (isConnecting ? '正在配對與掛載服務...' : '未連線');
                 document.getElementById('dist-info').innerText = data.distance_from_origin + ' m';
                 
                 let btnManual = document.getElementById('btn-toggle-manual');
                 let panelManual = document.getElementById('manual-remote-panel');
 
-                if (connectedUdids.length > 0) {
+                if (connectedUdids.length > 0 && !isReturningHome) {
                     btnManual.disabled = false;
                     if (!isManualModeActive) {
                         btnManual.innerText = '🎮 啟用手動遙控微調';
@@ -984,18 +1432,33 @@
                     }
                 } else {
                     btnManual.disabled = true;
-                    btnManual.innerText = '🎮 啟用手動遙控微調 (需連線)';
+                    btnManual.innerText = isReturningHome ? '🎮 平滑返航中 (暫停手動遙控)' : '🎮 啟用手動遙控微調 (需連線)';
                     btnManual.className = 'btn btn-tool';
                     isManualModeActive = false;
                     panelManual.style.display = 'none';
                 }
 
                 let taskPanel = document.getElementById('task-calc-panel');
+                let taskTitle = document.getElementById('task-card-title');
+                let taskDistLabel = document.getElementById('task-dist-label');
                 let remainRow = document.getElementById('route-remain-row');
+                let remainLabel = document.getElementById('route-remain-label');
 
-                if (isCruising) {
+                if (isCruising || isReturningHome) {
                     taskPanel.style.display = 'block';
                     remainRow.style.display = 'block';
+
+                    if (isReturningHome) {
+                        taskTitle.innerText = '🏠 平滑返航進度 (依設定速度)';
+                        taskTitle.style.color = '#34c759';
+                        taskDistLabel.innerText = '距離真實起點:';
+                        remainLabel.innerText = '返航剩餘距離:';
+                    } else {
+                        taskTitle.innerText = '⏱️ 後端巡航進度';
+                        taskTitle.style.color = '#007aff';
+                        taskDistLabel.innerText = '剩餘總距離:';
+                        remainLabel.innerText = '當前航點距離:';
+                    }
 
                     let totalDist = data.total_remaining_dist;
                     document.getElementById('calc-total-dist').innerText = totalDist >= 1000 ? `${(totalDist/1000).toFixed(2)} km` : `${Math.round(totalDist)} m`;
@@ -1009,13 +1472,14 @@
                     if (hrs > 0) timeStr += `${hrs} 小時 `;
                     timeStr += `${mins} 分 ${remSecs} 秒`;
                     document.getElementById('calc-eta-time').innerText = timeStr;
+                    document.getElementById('calc-actual-speed').innerText = `${(data.actual_speed_kmh || 0).toFixed(1)} km/h (上限 ${data.speed_kmh} km/h)`;
 
                     let loopProgBox = document.getElementById('calc-loop-progress');
-                    if (data.loop_mode === 'custom') {
+                    if (!isReturningHome && data.loop_mode === 'custom') {
                         loopProgBox.style.display = 'block';
                         document.getElementById('loop-current-idx').innerText = data.current_loop_idx;
                         document.getElementById('loop-target-count').innerText = data.target_loop_count;
-                    } else if (data.loop_mode === 'infinite') {
+                    } else if (!isReturningHome && data.loop_mode === 'infinite') {
                         loopProgBox.style.display = 'block';
                         document.getElementById('loop-current-idx').innerText = data.current_loop_idx;
                         document.getElementById('loop-target-count').innerText = '♾️';
@@ -1035,11 +1499,11 @@
 
                 if (isSimulating) {
                     stopGroup.style.display = 'block';
-                    if (isStopping) {
-                        btnStop.innerText = '⚡ 強制終止模擬 (中斷連線)';
+                    if (isReturningHome) {
+                        btnStop.innerText = '⚡ 強制終止模擬 (立即斷開還原)';
                         btnStop.className = 'btn btn-force';
                     } else {
-                        btnStop.innerText = '平滑回歸起點並結束';
+                        btnStop.innerText = '平滑回歸起點並結束 (依設定速度)';
                         btnStop.className = 'btn btn-stop';
                     }
                 } else {
@@ -1055,7 +1519,23 @@
                     } else {
                         simMarker.setLatLng([data.current_lat, data.current_lon]);
                     }
-                    if (autoFollow && isCruising) {
+
+                    // 繪製平滑返航引導線
+                    if (isReturningHome && data.real_lat && data.real_lon) {
+                        if (returnHomePolyline) {
+                            returnHomePolyline.setLatLngs([[data.current_lat, data.current_lon], [data.real_lat, data.real_lon]]);
+                        } else {
+                            returnHomePolyline = L.polyline(
+                                [[data.current_lat, data.current_lon], [data.real_lat, data.real_lon]],
+                                { color: '#34c759', weight: 4, dashArray: '5, 7' }
+                            ).addTo(map);
+                        }
+                    } else if (returnHomePolyline) {
+                        map.removeLayer(returnHomePolyline);
+                        returnHomePolyline = null;
+                    }
+
+                    if (autoFollow && (isCruising || isReturningHome)) {
                         map.panTo([data.current_lat, data.current_lon], { animate: true });
                     }
                 }
@@ -1094,23 +1574,28 @@
         }
 
         async function handleDynamicStop() {
-            if (!isStopping) {
-                stopCruise();
-                isStopping = true;
-                let btn = document.getElementById('btn-dynamic-stop');
-                btn.innerText = '⚡ 強制終止模擬 (中斷退出)';
-                btn.className = 'btn btn-force';
-                showToast("正在平滑回歸起點...");
-                await fetch('/api/stop-smooth', { method: 'POST' });
+            if (!isStopping && !isReturningHome) {
+                let res = await fetch('/api/stop-smooth', { method: 'POST' });
+                let data = await res.json();
+                if (data.status === 'returning_home') {
+                    isStopping = true;
+                    isReturningHome = true;
+                    showToast(`🏠 已啟動平滑返航 (依設定速度 ${data.speed_kmh} km/h 返回起點，可隨時調整速度或點擊強制終止)`);
+                    fetchStatus();
+                    return;
+                }
+                showToast("已安全還原真實定位");
             } else {
                 await fetch('/api/stop-force', { method: 'POST' });
-                showToast("已強制終止連線");
+                showToast("⚡ 已強制終止模擬並還原真實定位");
             }
 
             isSimulating = false;
             isStopping = false;
+            isReturningHome = false;
             connectedUdids = [];
 
+            if (returnHomePolyline) { map.removeLayer(returnHomePolyline); returnHomePolyline = null; }
             if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
             refreshDevices();
             checkCruiseButtons();
@@ -1149,13 +1634,13 @@
             }
         }
 
-        async function manualMove(dx, dy) {
+        async function manualMove(dx, dy, dt = 0.5) {
             if (!isSimulating || isStopping || !isManualModeActive) return;
 
             let res = await fetch('/api/move', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ dx: dx, dy: dy })
+                body: JSON.stringify({ dx: dx, dy: dy, dt: dt })
             });
             let data = await res.json();
             if (data.current_lat) {
@@ -1165,6 +1650,61 @@
                 if (autoFollow) map.panTo([data.current_lat, data.current_lon], { animate: true });
             }
         }
+
+        // --- 🕹️ 360° 圓形拖曳虛擬搖桿控制 ---
+        let joyVec = { dx: 0, dy: 0 };
+        (function initJoystick() {
+            const wrap = document.getElementById('joystick-wrap');
+            const knob = document.getElementById('joystick-knob');
+            const info = document.getElementById('joystick-info');
+            if (!wrap || !knob) return;
+
+            let dragging = false;
+            const maxRadius = 34;
+
+            function updateKnob(clientX, clientY) {
+                const rect = wrap.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                let ox = clientX - cx;
+                let oy = clientY - cy;
+                let dist = Math.hypot(ox, oy);
+                if (dist > maxRadius) {
+                    ox = (ox / dist) * maxRadius;
+                    oy = (oy / dist) * maxRadius;
+                    dist = maxRadius;
+                }
+                knob.style.left = `${34 + ox}px`;
+                knob.style.top = `${34 + oy}px`;
+
+                // 螢幕 Y 軸向下為正，地圖緯度向北 (上) 為正
+                joyVec.dx = ox / maxRadius;
+                joyVec.dy = -oy / maxRadius;
+                let pct = Math.round((dist / maxRadius) * 100);
+                let deg = Math.round((Math.atan2(joyVec.dx, joyVec.dy) * 180 / Math.PI + 360) % 360);
+                info.innerText = pct > 3 ? `方位 ${deg}° · 速度比例 ${pct}%` : '拖曳圓球可 360° 無段方向移動';
+            }
+
+            function resetKnob() {
+                dragging = false;
+                knob.style.left = '34px';
+                knob.style.top = '34px';
+                joyVec.dx = 0;
+                joyVec.dy = 0;
+                info.innerText = '拖曳圓球可 360° 無段方向移動';
+            }
+
+            knob.addEventListener('pointerdown', e => {
+                dragging = true;
+                knob.setPointerCapture(e.pointerId);
+            });
+            knob.addEventListener('pointermove', e => {
+                if (!dragging) return;
+                updateKnob(e.clientX, e.clientY);
+            });
+            knob.addEventListener('pointerup', resetKnob);
+            knob.addEventListener('pointercancel', resetKnob);
+        })();
 
         document.getElementById('speed-slider').addEventListener('input', e => {
             let val = parseFloat(e.target.value);
@@ -1201,6 +1741,7 @@
         const keys = {};
         window.addEventListener('keydown', e => {
             if (!isManualModeActive) return;
+            if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
             let k = e.key.toLowerCase();
             if (['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) {
                 keys[k] = true;
@@ -1218,6 +1759,12 @@
 
         setInterval(async () => {
             if (!isSimulating || !isManualModeActive || isCruising || isStopping) return;
+
+            if (Math.hypot(joyVec.dx, joyVec.dy) > 0.05) {
+                manualMove(joyVec.dx, joyVec.dy, 0.5);
+                return;
+            }
+
             let dx = 0, dy = 0;
             if (keys['w'] || keys['arrowup']) dy += 1;
             if (keys['s'] || keys['arrowdown']) dy -= 1;
@@ -1226,9 +1773,9 @@
 
             if (dx !== 0 || dy !== 0) {
                 let len = Math.hypot(dx, dy);
-                manualMove(dx / len, dy / len);
+                manualMove(dx / len, dy / len, 0.5);
             }
-        }, 1000);
+        }, 500);
 
         initPage();
         setInterval(fetchStatus, 1000);

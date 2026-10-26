@@ -20,10 +20,13 @@ struct iOSLocationControllerApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     var pythonProcess: Process?
+    static weak var shared: AppDelegate?
     static let sessionToken = UUID().uuidString
     static var serverPort: Int = 8000
     static var notifyPort: Int = 8001
+    static var lastBackendOutput: String = ""
     private var notifyListener: NWListener?
+    private var isConfirmedTerminating = false
 
     // 🎯 取得作業系統當前可用的空閒 Port
     static func findFreePort() -> Int {
@@ -69,7 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 設定通知委派，使 App 在前景時也能正常顯示橫幅與播放聲音
+        AppDelegate.shared = self
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             if granted {
@@ -77,7 +80,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             }
         }
 
-        // 啟動 Swift 內部的原生通知監聽服務
         startNativeNotificationListener()
         startBackendServer()
     }
@@ -88,6 +90,78 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+
+    // 🎯 統一處理視窗關閉與 Cmd+Q 退出：支援「依設定速度平滑返航」或「立即清除模擬定位並退出」
+    func confirmAndHandleExit() -> Bool {
+        if isConfirmedTerminating {
+            return true
+        }
+        guard let url = URL(string: "http://127.0.0.1:\(AppDelegate.serverPort)/api/status?token=\(AppDelegate.sessionToken)") else {
+            return true
+        }
+
+        var isSimulating = false
+        let semaphore = DispatchSemaphore(value: 0)
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 0.6
+
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let sim = json["is_simulating"] as? Bool {
+                isSimulating = sim
+            }
+            semaphore.signal()
+        }.resume()
+
+        _ = semaphore.wait(timeout: .now() + 0.6)
+
+        if !isSimulating {
+            isConfirmedTerminating = true
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "確定要結束並關閉程式嗎？"
+        alert.informativeText = "目前 iPhone 仍處於虛擬定位狀態。您可以選擇立即還原真實 GPS 定位並退出，或在畫面中啟動「依設定速度平滑返航」。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "立即還原真實定位並退出")
+        alert.addButton(withTitle: "留在本頁並依設定速度返航")
+        alert.addButton(withTitle: "取消")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            isConfirmedTerminating = true
+            if let stopUrl = URL(string: "http://127.0.0.1:\(AppDelegate.serverPort)/api/stop-force?token=\(AppDelegate.sessionToken)") {
+                var stopReq = URLRequest(url: stopUrl)
+                stopReq.httpMethod = "POST"
+                stopReq.timeoutInterval = 3.0
+                let stopSem = DispatchSemaphore(value: 0)
+                URLSession.shared.dataTask(with: stopReq) { _, _, _ in
+                    stopSem.signal()
+                }.resume()
+                _ = stopSem.wait(timeout: .now() + 3.0)
+            }
+            return true
+        } else if response == .alertSecondButtonReturn {
+            if let smoothUrl = URL(string: "http://127.0.0.1:\(AppDelegate.serverPort)/api/stop-smooth?token=\(AppDelegate.sessionToken)") {
+                var smoothReq = URLRequest(url: smoothUrl)
+                smoothReq.httpMethod = "POST"
+                URLSession.shared.dataTask(with: smoothReq).resume()
+            }
+            return false
+        } else {
+            return false
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        return confirmAndHandleExit()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        return confirmAndHandleExit() ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -117,7 +191,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
                 connection.start(queue: .main)
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
                     if let data = data, let text = String(data: data, encoding: .utf8) {
-                        // 解析 HTTP 請求體中的 JSON
                         if let jsonStart = text.range(of: "\r\n\r\n") {
                             let jsonString = String(text[jsonStart.upperBound...])
                             if let jsonData = jsonString.data(using: .utf8),
@@ -142,57 +215,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         }
     }
 
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(AppDelegate.serverPort)/api/status?token=\(AppDelegate.sessionToken)") else {
-            return true
-        }
-
-        var isSimulating = false
-        let semaphore = DispatchSemaphore(value: 0)
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 0.5
-
-        URLSession.shared.dataTask(with: req) { data, _, _ in
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let sim = json["is_simulating"] as? Bool {
-                isSimulating = sim
-            }
-            semaphore.signal()
-        }.resume()
-
-        _ = semaphore.wait(timeout: .now() + 0.5)
-
-        if !isSimulating {
-            return true
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "確定要結束並關閉程式嗎？"
-        alert.informativeText = "目前 iPhone 仍處於虛擬定位狀態。關閉程式將會自動為您平滑恢復真實 GPS 定位。"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "恢復定位並退出")
-        alert.addButton(withTitle: "取消")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            if let stopUrl = URL(string: "http://127.0.0.1:\(AppDelegate.serverPort)/api/stop-smooth?token=\(AppDelegate.sessionToken)") {
-                var stopReq = URLRequest(url: stopUrl)
-                stopReq.httpMethod = "POST"
-                stopReq.timeoutInterval = 5.0
-                let stopSem = DispatchSemaphore(value: 0)
-                URLSession.shared.dataTask(with: stopReq) { _, _, _ in
-                    stopSem.signal()
-                }.resume()
-                _ = stopSem.wait(timeout: .now() + 5.0)
-            }
-            return true
-        } else {
-            return false
-        }
-    }
-
     func startBackendServer() {
+        if let existing = pythonProcess, existing.isRunning {
+            existing.terminate()
+        }
+        AppDelegate.lastBackendOutput = ""
         AppDelegate.serverPort = AppDelegate.findFreePort()
         print("🎯 分配空閒 Port: \(AppDelegate.serverPort)")
 
@@ -213,12 +240,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             }
         }
 
-        guard let pythonPath = validPythonPath else { return }
+        guard let pythonPath = validPythonPath else {
+            AppDelegate.lastBackendOutput = "找不到內嵌的 EmbeddedPython/python/bin/python3 執行檔"
+            return
+        }
 
         let scriptPath = "\(resourcePath)/app.py"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: pythonPath)
-        // 傳遞參數：app.py <SERVER_PORT> <SESSION_TOKEN> <NOTIFY_PORT>
         process.arguments = [
             scriptPath,
             String(AppDelegate.serverPort),
@@ -227,7 +256,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         ]
         process.currentDirectoryURL = URL(fileURLWithPath: resourcePath)
 
+        // 🎯 隔離使用者外部環境變數污染 (避免外部 Homebrew/Anaconda 的 PYTHONPATH 干擾內嵌環境)
         var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "PYTHONPATH")
+        env.removeValue(forKey: "PYTHONHOME")
+        env["PYTHONNOUSERSITE"] = "1"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONUNBUFFERED"] = "1"
         env["PYMOBILEDEVICE3_USERSPACE_TUNNEL"] = "1"
         process.environment = env
 
@@ -238,11 +273,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         pipe.fileHandleForReading.readabilityHandler = { fileHandle in
             let data = fileHandle.availableData
             if let output = String(data: data, encoding: .utf8), !output.isEmpty {
-                print("[Python] \(output.trimmingCharacters(in: .whitespacesAndNewlines))")
+                let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("[Python] \(trimmed)")
+                DispatchQueue.main.async {
+                    AppDelegate.lastBackendOutput = String((AppDelegate.lastBackendOutput + "\n" + trimmed).suffix(1200))
+                }
             }
         }
 
-        try? process.run()
-        self.pythonProcess = process
+        do {
+            try process.run()
+            self.pythonProcess = process
+        } catch {
+            AppDelegate.lastBackendOutput = "啟動 Python 子進程失敗: \(error.localizedDescription)"
+        }
     }
 }
