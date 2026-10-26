@@ -1,0 +1,7 @@
+.DS_Store
+EmbeddedPython/
+**/xcuserdata/
+build/
+DerivedData/
+__pycache__/
+*.pyc
