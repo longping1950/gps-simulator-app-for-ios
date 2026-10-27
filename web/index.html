@@ -1634,20 +1634,28 @@
             }
         }
 
+        let isMoveInFlight = false;
         async function manualMove(dx, dy, dt = 0.5) {
-            if (!isSimulating || isStopping || !isManualModeActive) return;
-
-            let res = await fetch('/api/move', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ dx: dx, dy: dy, dt: dt })
-            });
-            let data = await res.json();
-            if (data.current_lat) {
-                currentPos = { lat: data.current_lat, lon: data.current_lon };
-                if (simMarker) simMarker.setLatLng([data.current_lat, data.current_lon]);
-                document.getElementById('dist-info').innerText = data.distance + ' m';
-                if (autoFollow) map.panTo([data.current_lat, data.current_lon], { animate: true });
+            if (!isSimulating || isStopping || !isManualModeActive || isMoveInFlight) return;
+            isMoveInFlight = true;
+            try {
+                let res = await fetch('/api/move', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ dx: dx, dy: dy, dt: dt })
+                });
+                let data = await res.json();
+                if (data.current_lat) {
+                    currentPos = { lat: data.current_lat, lon: data.current_lon };
+                    if (simMarker) simMarker.setLatLng([data.current_lat, data.current_lon]);
+                    if (data.distance !== undefined) {
+                        document.getElementById('dist-info').innerText = data.distance + ' m';
+                    }
+                    if (autoFollow) map.panTo([data.current_lat, data.current_lon], { animate: true });
+                }
+            } catch (e) {
+            } finally {
+                isMoveInFlight = false;
             }
         }
 
