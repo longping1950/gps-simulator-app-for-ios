@@ -16,9 +16,11 @@ import pymobiledevice3.remote.tunnel_service as tunnel_service
 tunnel_service.USE_USERSPACE_TUNNEL = True
 
 import asyncio
+from contextlib import AsyncExitStack, suppress
 from datetime import datetime
 import json
 import math
+import platform
 import random
 import re
 import signal
@@ -40,15 +42,31 @@ from pymobiledevice3 import usbmux
 from pymobiledevice3.exceptions import (
     AlreadyMountedError,
     DeveloperModeIsNotEnabledError,
+    InvalidServiceError,
     MuxException,
     NoDeviceConnectedError,
     NotPairedError,
     PairingError,
+    PyMobileDevice3Exception,
+    RemotePairingCompletedError,
     RSDRequiredError,
+    StartServiceError,
     UserDeniedPairingError,
+    UserspaceTunnelUnavailableError,
 )
-from pymobiledevice3.lockdown import create_using_usbmux
-from pymobiledevice3.remote.rsd_tunnel import PreferredRsdTunnel
+from pymobiledevice3.lockdown import LockdownClient, create_using_usbmux
+from pymobiledevice3.pair_records import iter_remote_pair_records_by_identifier
+from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+from pymobiledevice3.remote.tunnel_service import (
+    CoreDeviceTunnelProxy,
+    RemotePairingLockdownService,
+    get_remote_pairing_tunnel_services,
+)
+from pymobiledevice3.remote.userspace_tunnel import (
+    UserspaceDialPlane,
+    UserspaceTun,
+    _lifecycle_lock,
+)
 from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
 from pymobiledevice3.services.mobile_image_mounter import (
@@ -59,6 +77,9 @@ from pymobiledevice3.services.mobile_image_mounter import (
     image_type_for_device,
     uses_personalized_image,
 )
+
+# 記錄啟動時的父進程 PID (Swift 宿主 App)，若宿主意外崩潰或被強制結束，自動還原定位並退出
+PARENT_PID = os.getppid()
 
 # 接收 Swift 傳遞的動態參數：app.py <PORT> <TOKEN> <NOTIFY_PORT>
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8000
@@ -151,7 +172,7 @@ def _infer_error_solution(error_text: str, stage: str = "") -> str:
     if any(k in lower for k in ["nodeviceconnected", "usbmux", "remotepairing", "userspacetunnelunavailable", "偵測不到"]):
         return (
             "1. 有線連接：請確認使用支援資料傳輸的 USB 線（非純充電線），且手機已解鎖。\n"
-            "2. 無線連接：新手機必須先插線成功連線一次（系統會自動為手機開啟 Wi-Fi 無線探索），之後才能在相同 Wi-Fi 網段下無線連線。\n"
+            "2. 無線連接：新手機必須先插線成功連線一次（系統會自動為手機開啟 Wi-Fi 探索並建立 RemotePairing 無線憑證），之後才能在相同 Wi-Fi 網段下無線連線。\n"
             "3. macOS 權限：請確認「系統設定 > 隱私權與安全性 > 區域網路」中已允許本 App 存取。"
         )
     if any(k in lower for k in ["terminated", "incompleteread", "reset", "brokenpipe", "連線中斷", "timeout"]):
@@ -213,7 +234,32 @@ def send_macos_notification(title: str, subtitle: str, message: str, sound_name:
     threading.Thread(target=_post, daemon=True).start()
 
 
-async def _ensure_ddi_mounted(provider) -> None:
+async def _bootstrap_remotepairing_over_usb(lockdown: LockdownClient) -> None:
+    """
+    🎯【關鍵無線修復】：
+    當手機透過已信任的 USB 連接時，透過 `com.apple.dt.remotepairingdeviced.lockdown` 服務
+    自動完成免確認 (promptless) 的 RemotePairing 配對，在 `~/.pymobiledevice3/remote_<UDID>.plist`
+    寫入包含 `peer_alt_irk` 的無線配對憑證，讓拔線後的 Bonjour 無線隧道能直接配對成功！
+    """
+    if Version(lockdown.product_version).major < 17:
+        return
+    service = await RemotePairingLockdownService.create(lockdown)
+    try:
+        try:
+            await asyncio.wait_for(service.connect(autopair=True), timeout=8.0)
+        except RemotePairingCompletedError:
+            await service.close()
+            service = await RemotePairingLockdownService.create(lockdown)
+            await asyncio.wait_for(service.connect(autopair=False), timeout=5.0)
+        print(f"✅ [RemotePairing] 已為 {lockdown.udid} 自動建立免確認無線 RemotePairing 憑證")
+    except Exception as e:
+        print(f"ℹ️ [RemotePairing] 自動建立無線憑證略過 ({type(e).__name__}: {e})")
+    finally:
+        with suppress(Exception):
+            await service.close()
+
+
+async def _ensure_ddi_mounted(provider, service_ref=None) -> None:
     """檢查裝置是否已掛載 Developer Disk Image (DDI)，若未掛載則預先下載並自動掛載。"""
     image_type = image_type_for_device(provider)
     async with MobileImageMounterService(lockdown=provider) as mounter:
@@ -222,6 +268,9 @@ async def _ensure_ddi_mounted(provider) -> None:
             return
 
     print(f"⏳ [DDI] 偵測到手機尚未掛載 {image_type} DDI，準備自動下載與掛載...")
+    if service_ref is not None:
+        service_ref.connect_stage = "正在從雲端下載 Apple 開發者映像檔 (首次約需 10~20 秒)..."
+
     # 將同步下載 DDI 的步驟放到背景執行緒，避免阻塞 Userspace PyTCP 事件迴圈
     if uses_personalized_image(provider):
         if Version(provider.product_version) >= CRYPTEX_IMAGE_MIN_VERSION:
@@ -230,11 +279,144 @@ async def _ensure_ddi_mounted(provider) -> None:
         else:
             await asyncio.to_thread(fetch_personalized_ddi)
 
+    if service_ref is not None:
+        service_ref.connect_stage = "正在向 Apple 申請專屬簽章並掛載映像檔至手機..."
+
     try:
         await auto_mount(provider)
         print(f"✅ [DDI] {image_type} 開發者映像檔自動掛載完成！")
     except AlreadyMountedError:
         print(f"✅ [DDI] {image_type} 開發者映像檔已掛載。")
+
+
+class ResilientRsdTunnel:
+    """
+    🎯【全方位有線/無線隧道管理器】：
+    彌補 pymobiledevice3 內建 `_create_no_root_tunnel_provider` 與 `PreferredRsdTunnel` 在純 Wi-Fi 時：
+    1. 當 usbmuxd 未列出裝置或 CoreDeviceProxy 拋出 StartServiceError 時不會退避至 Bonjour RemotePairing 的問題。
+    2. 當 Userspace 拋出非 UserspaceTunnelUnavailableError 時不會退避至 macOS NativeRemotedTunnel 的問題。
+    依序嘗試：
+      Path A: Userspace CoreDeviceTunnelProxy (over usbmux USB / Wi-Fi)
+      Path B: Userspace RemotePairingTunnelService (over Bonjour `_remotepairing._tcp`)
+      Path C: macOS NativeRemotedTunnel (over Apple `remotepairingd`)
+    """
+
+    def __init__(self, serial: Optional[str] = None, autopair: bool = True):
+        self.serial = serial
+        self.autopair = autopair
+        self._stack: Optional[AsyncExitStack] = None
+        self._native_tunnel = None
+        self._transport_watcher: Optional[asyncio.Task[None]] = None
+        self.rsd: Optional[RemoteServiceDiscoveryService] = None
+
+    async def _pick_userspace_provider(self):
+        lockdown = None
+        resolved_udid = self.serial
+        try:
+            lockdown = await create_using_usbmux(serial=self.serial, autopair=self.autopair)
+            resolved_udid = self.serial or lockdown.udid
+            return await CoreDeviceTunnelProxy.create(lockdown), lockdown
+        except (
+            InvalidServiceError,
+            StartServiceError,
+            NoDeviceConnectedError,
+            MuxException,
+            PyMobileDevice3Exception,
+            OSError,
+        ) as e:
+            if lockdown is not None:
+                with suppress(Exception):
+                    await lockdown.close()
+            print(f"ℹ️ [Tunnel] CoreDeviceProxy/usbmux 通道無法直接建立 ({type(e).__name__}: {e})，切換至 Bonjour RemotePairing 無線通道...")
+
+        services = await get_remote_pairing_tunnel_services(udid=resolved_udid)
+        if not services:
+            raise UserspaceTunnelUnavailableError(
+                "無法透過 CoreDeviceProxy 或 Bonjour RemotePairing 建立 Userspace 隧道"
+            )
+        # 關閉未選中的多餘 service
+        for extra in services[1:]:
+            with suppress(Exception):
+                await extra.close()
+        return services[0], None
+
+    async def aopen(self) -> RemoteServiceDiscoveryService:
+        import pymobiledevice3.remote.userspace_tunnel as ut_mod
+
+        async with _lifecycle_lock():
+            # 若先前的隧道因意外未清除，先安全釋放
+            if ut_mod._active_tunnel is not None:
+                with suppress(Exception):
+                    await ut_mod._active_tunnel.aclose()
+
+            tunnel_service.USE_USERSPACE_TUNNEL = True
+            stack = AsyncExitStack()
+            try:
+                provider, lockdown = await self._pick_userspace_provider()
+                stack.push_async_callback(provider.close)
+                if lockdown is not None:
+                    stack.push_async_callback(lockdown.close)
+                tunnel_result = await stack.enter_async_context(provider.start_tcp_tunnel())
+                tun: UserspaceTun = tunnel_result.client.tun
+                tun.set_peer(tunnel_result.address)
+                dial_plane = await stack.enter_async_context(UserspaceDialPlane(tun, tunnel_result.address))
+                rsd = RemoteServiceDiscoveryService(
+                    (tunnel_result.address, tunnel_result.port),
+                    open_connection=dial_plane.dial,
+                    auxiliary_metadata=tunnel_result.auxiliary_metadata,
+                )
+                stack.push_async_callback(rsd.close)
+                await rsd.connect()
+                self._stack = stack
+                self.rsd = rsd
+                ut_mod.USERSPACE_ACTIVE = True
+                return rsd
+            except BaseException as userspace_err:
+                await stack.aclose()
+                tunnel_service.USE_USERSPACE_TUNNEL = False
+                ut_mod.USERSPACE_ACTIVE = False
+                if platform.system() != "Darwin":
+                    raise
+                print(f"ℹ️ [Tunnel] Userspace 隧道未就緒 ({type(userspace_err).__name__}: {userspace_err})，嘗試 macOS 原生 remotepairingd 通道...")
+
+        # Fallback Path C: macOS NativeRemotedTunnel (remotepairingd)
+        from pymobiledevice3.remote.native_tunnel import NativeRemotedTunnel
+
+        native = NativeRemotedTunnel(serial=self.serial)
+        try:
+            rsd = await native.aopen()
+        except BaseException:
+            await native.aclose()
+            raise
+        self._native_tunnel = native
+        self.rsd = rsd
+        return rsd
+
+    async def aclose(self) -> None:
+        import pymobiledevice3.remote.userspace_tunnel as ut_mod
+
+        if self._native_tunnel is not None:
+            native, self._native_tunnel = self._native_tunnel, None
+            self.rsd = None
+            with suppress(Exception):
+                await native.aclose()
+            return
+
+        async with _lifecycle_lock():
+            if self._stack is None:
+                return
+            stack, self._stack = self._stack, None
+            self.rsd = None
+            ut_mod.USERSPACE_ACTIVE = False
+            tunnel_service.USE_USERSPACE_TUNNEL = False
+            with suppress(Exception):
+                await stack.aclose()
+
+    async def __aenter__(self) -> RemoteServiceDiscoveryService:
+        return await self.aopen()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.aclose()
 
 
 # --- 核心：非同步長連接 Session 服務 ---
@@ -272,11 +454,18 @@ class IOSUserspaceGpsService:
         while True:
             action, payload = await self.cmd_queue.get()
             if action == "START":
+                # 清理佇列中殘留的過期 SET 指令，但若使用者已按下 STOP 則取消啟動
+                abort_start = False
                 while not self.cmd_queue.empty():
                     try:
-                        self.cmd_queue.get_nowait()
+                        next_act, _ = self.cmd_queue.get_nowait()
+                        if next_act == "STOP":
+                            abort_start = True
                     except asyncio.QueueEmpty:
                         break
+                if abort_start:
+                    self.is_connecting = False
+                    continue
                 udid, init_lat, init_lon = payload
                 self.current_udid = udid
                 self.user_requested_stop = False
@@ -293,27 +482,33 @@ class IOSUserspaceGpsService:
         self.connect_stage = "已連線"
         print(f"✅ [Userspace] 會話已就緒！起點座標鎖定: {init_lat:.6f}, {init_lon:.6f}")
 
-        while self.is_running:
-            try:
-                action, payload = await asyncio.wait_for(self.cmd_queue.get(), timeout=1.0)
-                if action == "SET":
-                    lat, lon = payload
-                    await sim.set(lat, lon)
-                elif action == "STOP":
-                    self.user_requested_stop = True
-                    break
-                elif action == "START":
-                    await self.cmd_queue.put(("START", payload))
-                    break
-            except asyncio.TimeoutError:
-                continue
-
-        print("🛑 [Userspace] 正在清理定位模擬...")
         try:
-            await asyncio.wait_for(sim.clear(), timeout=2.5)
-            print("✅ [Userspace] 已恢復真機 GPS 定位。")
-        except Exception as e:
-            print(f"清理異常: {e}")
+            while self.is_running:
+                try:
+                    action, payload = await asyncio.wait_for(self.cmd_queue.get(), timeout=1.0)
+                    if action == "SET":
+                        lat, lon = payload
+                        await sim.set(lat, lon)
+                    elif action == "STOP":
+                        self.user_requested_stop = True
+                        break
+                    elif action == "START":
+                        await self.cmd_queue.put(("START", payload))
+                        break
+                except asyncio.TimeoutError:
+                    continue
+
+            print("🛑 [Userspace] 正在清理定位模擬...")
+            try:
+                await asyncio.wait_for(sim.clear(), timeout=2.5)
+                print("✅ [Userspace] 已恢復真機 GPS 定位。")
+            except Exception as e:
+                print(f"清理異常: {e}")
+        finally:
+            # 離開定位迴圈時立即標記未連線，防止背景巡航執行緒在斷線重連等待期間繼續塞入 SET 座標
+            self.is_connected = False
+            self.is_running = False
+            self.sim = None
 
     async def _run_dvt_session(self, udid: str, init_lat: float, init_lon: float):
         self.is_connecting = True
@@ -325,7 +520,7 @@ class IOSUserspaceGpsService:
         was_connected_once = False
 
         try:
-            # Step 1: 嘗試透過 usbmux 連線 Lockdown (檢查信任配對、開發者模式、啟用 Wi-Fi 同步，並高速掛載 DDI)
+            # Step 1: 嘗試透過 usbmux 連線 Lockdown (檢查信任配對、開發者模式、啟用 Wi-Fi 與 RemotePairing 憑證，並高速掛載 DDI)
             print(f"⏳ [1/4] 正在檢查裝置配對與狀態 (UDID: {target_serial or '自動偵測'})...")
             try:
                 async with await create_using_usbmux(serial=target_serial, autopair=True) as lockdown:
@@ -350,18 +545,19 @@ class IOSUserspaceGpsService:
                         print(f"❌ [Userspace] {self.last_error}")
                         return
 
-                    # 若目前透過 USB 有線連接，自動為該手機啟用 Wi-Fi 無線連線支援，方便日後拔線使用
+                    # 若目前透過 USB 有線連接，自動為該手機啟用 Wi-Fi 無線探索 + 建立免確認 RemotePairing 無線憑證
                     if lockdown.service.mux_device and lockdown.service.mux_device.is_usb:
                         try:
                             await lockdown.set_enable_wifi_connections(True)
-                            print("✅ [Wi-Fi] 已自動為此 iPhone 開啟 Wi-Fi 無線探索支援")
+                            print("✅ [Wi-Fi] 已自動為此 iPhone 開啟 usbmux Wi-Fi 無線探索支援")
                         except Exception as wifi_err:
                             print(f"ℹ️ [Wi-Fi] 設定 Wi-Fi 連接旗標略過: {wifi_err}")
 
+                        await _bootstrap_remotepairing_over_usb(lockdown)
+
                     # 嘗試直接在原生 usbmux 通道上檢查並高速掛載 DDI (比在 Userspace PyTCP 隧道內上傳快數倍)
-                    self.connect_stage = "正在檢查並掛載開發者映像檔 (首次約需 15~30 秒)..."
                     try:
-                        await _ensure_ddi_mounted(lockdown)
+                        await _ensure_ddi_mounted(lockdown, service_ref=self)
                         ddi_mounted_over_usbmux = True
                     except RSDRequiredError:
                         print("ℹ️ [DDI] 此 iOS 版本需透過 RSD 隧道安裝 Cryptex1 DDI，將於隧道建立後執行。")
@@ -386,20 +582,19 @@ class IOSUserspaceGpsService:
                         return
 
             except (NoDeviceConnectedError, MuxException) as mux_err:
-                print(f"ℹ️ [usbmux] 未透過 usbmux 直接連線 ({mux_err})，嘗試使用 RSD 遠端配對通道...")
+                print(f"ℹ️ [usbmux] 未透過 usbmux 直接連線 ({mux_err})，嘗試使用無線 RSD 遠端配對通道...")
 
-            # Step 2: iOS 17+ 建立免 root 的 RSD 隧道
+            # Step 2: iOS 17+ 建立免 root 的全方位 RSD 隧道 (ResilientRsdTunnel)
             self.connect_stage = "正在建立 RSD 安全隧道..."
             print(f"⏳ [2/4] 正在與裝置 ({target_serial or '自動'}) 建立 RSD 隧道...")
-            async with PreferredRsdTunnel(serial=target_serial, autopair=True) as rsd:
+            async with ResilientRsdTunnel(serial=target_serial, autopair=True) as rsd:
                 if rsd.udid:
                     self.current_udid = rsd.udid
                 print(f"✅ [2/4] RSD 隧道建立成功！裝置: {rsd.product_type} (iOS {rsd.product_version})")
 
-                # Step 3: 若方才尚未透過 usbmux 掛載 DDI (如 iOS 27+ 或純 Bonjour 連線)，在 RSD 隧道上確保 DDI 已掛載
+                # Step 3: 若方才尚未透過 usbmux 掛載 DDI (如 iOS 27+ 或純 Bonjour 無線連線)，在 RSD 隧道上確保 DDI 已掛載
                 if not ddi_mounted_over_usbmux:
-                    self.connect_stage = "正在透過隧道掛載開發者映像檔 (首次約需 15~30 秒)..."
-                    await _ensure_ddi_mounted(rsd)
+                    await _ensure_ddi_mounted(rsd, service_ref=self)
 
                 # Step 4: 掛載 DvtProvider 與 LocationSimulation
                 self.connect_stage = "正在啟動定位模擬服務..."
@@ -409,6 +604,8 @@ class IOSUserspaceGpsService:
                     await self._run_sim_loop(sim, init_lat, init_lon)
 
         except (NotPairedError, UserDeniedPairingError, PairingError) as e:
+            self.is_connected = False
+            self.is_running = False
             self.last_error = (
                 "尚未完成手機信任配對！\n"
                 "請將 iPhone 解鎖、使用傳輸線連接 Mac，並在手機跳出的視窗點選「信任這部電腦」並輸入手機密碼。"
@@ -422,6 +619,8 @@ class IOSUserspaceGpsService:
             )
             print(f"❌ [Userspace] {self.last_error}")
         except DeveloperModeIsNotEnabledError as e:
+            self.is_connected = False
+            self.is_running = False
             self.last_error = (
                 "偵測到 iPhone 尚未開啟「開發者模式」！\n"
                 "請至 iPhone「設定 > 隱私權與安全性 > 開發者模式」開啟並重新啟動手機。"
@@ -434,6 +633,8 @@ class IOSUserspaceGpsService:
             )
             print(f"❌ [Userspace] {self.last_error}")
         except NoDeviceConnectedError as e:
+            self.is_connected = False
+            self.is_running = False
             self.last_error = (
                 "偵測不到 iPhone 裝置！\n"
                 "首次使用請先插上 USB 傳輸線，解鎖手機並點選「信任這部電腦」；完成初次有線連線後即可支援相同 Wi-Fi 無線連接。"
@@ -446,6 +647,8 @@ class IOSUserspaceGpsService:
             )
             print(f"❌ [Userspace] {self.last_error}")
         except Exception as e:
+            self.is_connected = False
+            self.is_running = False
             self.last_error = (
                 f"無法與 iPhone 建立或維持定位通道 ({type(e).__name__}: {e})。\n"
                 "請確認手機已解鎖、已開啟開發者模式，且首次連線時 Mac 具備網路連線以自動下載開發者映像檔。"
@@ -493,7 +696,7 @@ class IOSUserspaceGpsService:
 
     def stop(self):
         self.user_requested_stop = True
-        if (self.is_connected or self.is_running) and self.loop:
+        if (self.is_connected or self.is_running or self.is_connecting) and self.loop:
             asyncio.run_coroutine_threadsafe(self.cmd_queue.put(("STOP", None)), self.loop)
 
 gps_service = IOSUserspaceGpsService()
@@ -509,7 +712,7 @@ def _graceful_shutdown_handler(signum, frame):
             time.sleep(0.6)
     except Exception:
         pass
-    sys.exit(0)
+    os._exit(0)
 
 signal.signal(signal.SIGTERM, _graceful_shutdown_handler)
 signal.signal(signal.SIGINT, _graceful_shutdown_handler)
@@ -539,7 +742,6 @@ def clamp_step_to_speed_limit(
     """
     max_step_meters = max(0.01, (max_speed_kmh / 3.6) * dt)
     actual_dist = calculate_distance(prev_lat, prev_lon, cand_lat, cand_lon)
-    # 預留 0.5% 浮點數安全邊界，確保瞬時時速絕不超標
     safe_limit = max_step_meters * 0.995
     if actual_dist > safe_limit and actual_dist > 0.0:
         scale = safe_limit / actual_dist
@@ -567,7 +769,6 @@ def apply_safe_gps_jitter(
 
     max_step_meters = (max_speed_kmh / 3.6) * dt
     base_dist = calculate_distance(prev_lat, prev_lon, base_lat, base_lon)
-    # 抖動半徑隨 random_level 調整 (約 0.05m ~ 0.35m)，且絕不超過可用的速度餘裕 (max_step_meters - base_dist)
     headroom = max(0.0, max_step_meters * 0.98 - base_dist)
     jitter_radius_m = min(0.35 * (random_level / 10.0), headroom * 0.85, base_dist * 0.15 + 0.08)
 
@@ -605,6 +806,7 @@ state = {
     "current_lon": init_lon,
     "anchor_lat": init_lat,
     "anchor_lon": init_lon,
+    "last_move_ts": 0.0,
     "is_simulating": False,
     "is_stopping": False,
     "is_returning_home": False,
@@ -626,8 +828,15 @@ state = {
 }
 
 async def scan_ios_devices_async() -> List[Dict]:
-    """直接透過 usbmux 協定掃描裝置，避免 subprocess 超時或因單一未配對/休眠裝置導致整體列表失敗。"""
+    """
+    全方位掃描裝置：
+    1. 優先查詢 usbmuxd (USB 與 Wi-Fi Network)。
+    2. 補充查詢本機已建立 RemotePairing 無線憑證 (`~/.pymobiledevice3/remote_*.plist`) 或 macOS `remotepairingd` 發現的裝置，
+       確保拔掉 USB 線後即使 usbmuxd 尚未廣播，使用者也能在列表中看到手機並發起 Wi-Fi 連線。
+    """
     devices: List[Dict] = []
+    seen_udids: set[str] = set()
+
     try:
         mux_devs = await usbmux.list_devices()
         by_udid: Dict[str, usbmux.MuxDevice] = {}
@@ -637,6 +846,7 @@ async def scan_ios_devices_async() -> List[Dict]:
                 by_udid[d.serial] = d
 
         for udid, mux_dev in by_udid.items():
+            seen_udids.add(udid)
             conn_type = "USB" if mux_dev.is_usb else "Network (Wi-Fi)"
             model_name = "iPhone"
             display_label = f"iOS 裝置 ({conn_type})"
@@ -676,6 +886,21 @@ async def scan_ios_devices_async() -> List[Dict]:
         print(f"[Scan] usbmux 掃描發生異常: {e}")
         add_debug_log("掃描 iOS 裝置異常", str(e), stage="裝置掃描", level="WARN")
 
+    # 補充已配對的 RemotePairing 無線裝置紀錄 (當拔除 USB 線且 usbmux 未列出時仍可點擊進行 Bonjour Wi-Fi 連線)
+    try:
+        for identifier, _, rec in iter_remote_pair_records_by_identifier():
+            if identifier and identifier not in seen_udids:
+                seen_udids.add(identifier)
+                peer_model = rec.get("peer_model") or "iPhone"
+                devices.append({
+                    "udid": identifier,
+                    "connection": "Network (Wi-Fi)",
+                    "model": peer_model,
+                    "name": f"{peer_model} (已配對 Wi-Fi)",
+                })
+    except Exception:
+        pass
+
     if not devices:
         devices.append({
             "udid": "default",
@@ -707,7 +932,6 @@ def get_effective_step_meters(dt: float, allow_random_pause: bool = True) -> flo
             state["pause_remaining"] = random.uniform(1.0, 2.5)
             return 0.0
 
-    # 擬真速度波動：只向下減速 (保留 5% 給微幅抖動，絕不向上超速)
     max_reduction = min(0.55, state["random_level"] * 0.05)
     min_factor = max(0.35, 0.95 - max_reduction)
     speed_factor = random.uniform(min_factor, 0.95)
@@ -721,7 +945,6 @@ def update_eta_calculation():
         cur_lon = state["current_lon"]
         spd_mps = (state["speed_kmh"] or 18.0) / 3.6
 
-        # 🎯 若正處於「平滑返航回原點」模式，計算回到真實起點的距離與預估時間
         if state["is_stopping"] or state["is_returning_home"]:
             home_dist = calculate_distance(cur_lat, cur_lon, state["real_lat"], state["real_lon"])
             state["target_remaining_dist"] = round(home_dist, 1)
@@ -763,6 +986,14 @@ def backend_cruise_worker():
 
     while True:
         try:
+            # 守護檢查：若宿主 Swift App 已被強制關閉 (孤兒進程保護)，主動清除手機虛擬定位並退出
+            if PARENT_PID > 1 and os.getppid() != PARENT_PID:
+                print("🛑 偵測到宿主 App 已結束，自動清理定位並退出後端...")
+                if gps_service.is_connected:
+                    gps_service.stop()
+                    time.sleep(0.5)
+                os._exit(0)
+
             now = time.monotonic()
             dt = max(0.1, min(1.5, now - last_tick))
             last_tick = now
@@ -783,11 +1014,9 @@ def backend_cruise_worker():
                 state["target_remaining_dist"] = round(dist, 1)
                 state["total_remaining_dist"] = dist
 
-                # 返航時不觸發隨機紅燈停等，以設定速度穩定平滑返回原點
                 step_meters = get_effective_step_meters(dt, allow_random_pause=False)
 
                 if dist <= max(1.2, step_meters):
-                    # 已抵達原點：精確對齊原點後斷開並恢復真實定位
                     state["current_lat"] = target_lat
                     state["current_lon"] = target_lon
                     state["anchor_lat"] = target_lat
@@ -840,7 +1069,6 @@ def backend_cruise_worker():
 
                 if step_meters > 0.0:
                     if dist <= step_meters:
-                        # 抵達當前航點，仍需確保這一步不超過設定的速度上限
                         next_lat, next_lon, actual_moved = clamp_step_to_speed_limit(
                             cur_lat, cur_lon, target["lat"], target["lng"], state["speed_kmh"], dt
                         )
@@ -902,7 +1130,6 @@ def backend_cruise_worker():
                     cur_lat = state["current_lat"]
                     cur_lon = state["current_lon"]
 
-                    # 在錨點周圍 0.15m ~ 0.55m 圓內產生微幅熱雜訊，且單步移動速度上限不超過 min(0.8 km/h, 設定速度 * 0.4)
                     radius_m = 0.15 + 0.04 * state["random_level"]
                     angle = random.uniform(0.0, 2.0 * math.pi)
                     r = random.uniform(0.0, radius_m)
@@ -930,13 +1157,11 @@ threading.Thread(target=backend_cruise_worker, daemon=True).start()
 # --- FastAPI 實例與安全防護 ---
 app = FastAPI(title="iOS 虛擬定位控制器 - 原生容器封裝版")
 
-# 掛載靜態資源目錄
 if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 @app.middleware("http")
 async def verify_app_internal_access(request: Request, call_next):
-    # 放行本地靜態資源
     if request.url.path == "/" or request.url.path.startswith("/static"):
         return await call_next(request)
 
@@ -1112,14 +1337,13 @@ async def clear_debug_logs():
     return {"status": "cleared", "total_count": 0}
 
 
-# --- 📍 地名 / 地址 / 座標搜尋代理 API (避免前端 CORS 或 User-Agent 限制) ---
+# --- 📍 地名 / 地址 / 座標搜尋代理 API ---
 @app.get("/api/geocode")
 async def geocode_search(q: str):
     query = q.strip()
     if not query:
         return {"results": []}
 
-    # 1. 優先判斷是否為直接輸入經緯度座標 (如 "25.0339, 121.5644")
     coord_match = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*[,，\s]\s*([-+]?\d+(?:\.\d+)?)\s*$", query)
     if coord_match:
         lat_val = float(coord_match.group(1))
@@ -1135,7 +1359,6 @@ async def geocode_search(q: str):
                 ]
             }
 
-    # 2. 向 OpenStreetMap Nominatim 查詢地標與地址
     def _fetch_nominatim():
         encoded = urllib.parse.quote(query)
         url = f"https://nominatim.openstreetmap.org/search?format=json&limit=5&q={encoded}"
@@ -1184,7 +1407,6 @@ async def connect_single_device(req: DeviceActionRequest):
 
     gps_service.connect(req.udid, lat, lon)
 
-    # 首次連線若需點擊信任、自動下載並掛載 DDI 映像檔約需 15~45 秒，最高等待 60 秒
     for _ in range(600):
         if gps_service.is_connected:
             break
@@ -1243,12 +1465,23 @@ async def move_by_vector(req: MoveVectorRequest):
     if state["is_cruising"]:
         state["is_cruising"] = False
 
-    dt = max(0.1, min(1.5, req.dt if req.dt is not None else 0.5))
     vec_mag = math.hypot(req.dx, req.dy)
     if vec_mag <= 0.001:
         return {"status": "idle", "current_lat": state["current_lat"], "current_lon": state["current_lon"]}
 
-    # 正規化方向並允許搖桿比例控制 (0 < vec_mag <= 1.0)，且單步絕不超過 speed_kmh 上限
+    # 🎯【防連點超速鎖】：以伺服器真實流逝時間 (now - last_move_ts) 限制 effective_dt，杜絕狂點方向鈕導致瞬間移動超速
+    now = time.monotonic()
+    req_dt = max(0.05, min(1.0, req.dt if req.dt is not None else 0.5))
+    with state["lock"]:
+        last_ts = state.get("last_move_ts") or 0.0
+        elapsed = (now - last_ts) if last_ts > 0.0 else req_dt
+        if elapsed < 0.04:
+            # 距離上次手動移動不足 40ms，直接忽略以防止連點累加超速
+            dist = calculate_distance(state["real_lat"], state["real_lon"], state["current_lat"], state["current_lon"])
+            return {"status": "throttled", "current_lat": state["current_lat"], "current_lon": state["current_lon"], "distance": round(dist, 1)}
+        dt = min(req_dt, elapsed)
+        state["last_move_ts"] = now
+
     throttle = min(1.0, vec_mag)
     ux, uy = req.dx / vec_mag, req.dy / vec_mag
 
@@ -1268,7 +1501,6 @@ async def move_by_vector(req: MoveVectorRequest):
     cand_lat = cur_lat + (delta_y_meters * lat_deg_per_meter)
     cand_lon = cur_lon + (delta_x_meters * lon_deg_per_meter)
 
-    # 疊加不超速微幅抖動並強制限制在 speed_kmh 內
     next_lat, next_lon = apply_safe_gps_jitter(
         cur_lat, cur_lon, cand_lat, cand_lon, state["speed_kmh"], state["random_level"], dt
     )
@@ -1364,7 +1596,6 @@ async def stop_simulation_smooth():
         target_lon = state["real_lon"]
         total_dist = calculate_distance(start_lat, start_lon, target_lat, target_lon)
 
-        # 若距離起點已經非常近 (<= 1.5m)，直接復位並結束
         if total_dist <= 1.5:
             state["current_lat"] = target_lat
             state["current_lon"] = target_lon
@@ -1379,7 +1610,6 @@ async def stop_simulation_smooth():
             send_macos_notification("SIM-GPS", "已恢復真實定位", "iPhone 定位已安全還原。", "Ping")
             return {"status": "stopped_smooth", "distance": 0.0, "eta_seconds": 0}
 
-        # 啟動以設定速度 (speed_kmh) 返航模式，由 backend_cruise_worker 依設定速度推進回原點
         state["is_stopping"] = True
         state["is_returning_home"] = True
 
