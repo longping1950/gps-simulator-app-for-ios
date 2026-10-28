@@ -854,6 +854,28 @@ async def disconnect_single_device(req: DeviceActionRequest):
     state["is_cruising"] = False
     state["is_cruise_paused"] = False
     state["returning_to_loop_origin"] = False
+
+    if not gps_service.is_connected:
+        state["is_stopping"] = False
+        state["is_returning_home"] = False
+        return {"status": "disconnected", "udid": req.udid}
+
+    # 若尚未處於平滑返航狀態，且距離真實起點 >= 2 公尺，點擊「中斷」自動進入平滑回歸模式
+    if not state["is_stopping"] and not state["is_returning_home"]:
+        dist = calculate_distance(state["current_lat"], state["current_lon"], state["real_lat"], state["real_lon"])
+        if dist >= 2.0:
+            state["is_stopping"] = True
+            state["is_returning_home"] = True
+            update_eta_calculation()
+            return {
+                "status": "returning_home",
+                "udid": req.udid,
+                "speed_kmh": state["speed_kmh"],
+                "eta_seconds": state["eta_seconds"],
+                "distance_m": round(dist, 1),
+            }
+
+    # 若已在起點附近 (< 2m) 或在返航途中再次點擊「強制中斷」，則立即斷開並還原
     state["is_stopping"] = False
     state["is_returning_home"] = False
     gps_service.stop()

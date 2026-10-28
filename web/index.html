@@ -718,15 +718,8 @@
         </div>
     </div>
 
-    <!-- 🐞 右下角地圖圖層、定位歸中與 Debug 按鈕列 -->
+    <!-- 🐞 右下角定位歸中與 Debug 按鈕列 -->
     <div class="bottom-right-bar">
-        <select id="map-layer-select" class="layer-select-pill" onchange="switchMapLayer(this.value)" title="切換地圖圖層">
-            <option value="osm_standard">🗺️ 標準街道</option>
-            <option value="carto_light">☀️ 清爽亮色</option>
-            <option value="carto_dark">🌙 深色夜視</option>
-            <option value="esri_satellite">🛰️ 衛星影像</option>
-            <option value="open_topo">⛰️ 等高地形</option>
-        </select>
         <button class="recenter-pill-btn" onclick="recenterMap()" title="立即回到定位中心">🎯 回到定位點</button>
         <button class="debug-floating-btn" onclick="openDebugModal()" title="查看錯誤紀錄與配套排解措施">
             <span>🐞 Debug</span>
@@ -1014,33 +1007,9 @@
             };
         }
 
-        // 🗺️ 多地圖圖層支援
-        let mapLayersCatalog = [
-            { id: 'osm_standard', name: '🗺️ 標準街道 (OSM)', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '© OpenStreetMap', max_zoom: 19 },
-            { id: 'carto_light', name: '☀️ 清爽亮色 (Carto)', url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attribution: '© CARTO', max_zoom: 20 },
-            { id: 'carto_dark', name: '🌙 深色夜視 (Dark)', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attribution: '© CARTO', max_zoom: 20 },
-            { id: 'esri_satellite', name: '🛰️ 衛星影像 (Esri)', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: '© Esri', max_zoom: 19 },
-            { id: 'open_topo', name: '⛰️ 等高地形 (Topo)', url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '© OpenTopoMap', max_zoom: 17 }
-        ];
-        let activeMapLayerId = 'osm_standard';
+        // 🗺️ 標準街道底圖（預留未來遊戲內機制圖層擴充）
         let map = L.map('map', { zoomControl: false }).setView([22.549088, 120.354109], 16);
-        let currentTileLayer = L.tileLayer(mapLayersCatalog[0].url, { maxZoom: mapLayersCatalog[0].max_zoom }).addTo(map);
-
-        async function switchMapLayer(layerId, syncServer = true) {
-            let found = mapLayersCatalog.find(l => l.id === layerId) || mapLayersCatalog[0];
-            activeMapLayerId = found.id;
-            if (currentTileLayer) map.removeLayer(currentTileLayer);
-            currentTileLayer = L.tileLayer(found.url, { maxZoom: found.max_zoom || 19, attribution: found.attribution || '' }).addTo(map);
-            let sel = document.getElementById('map-layer-select');
-            if (sel && sel.value !== found.id) sel.value = found.id;
-            if (syncServer) {
-                fetch('/api/set-settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ active_map_layer: found.id })
-                }).catch(() => {});
-            }
-        }
+        let currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
         let originMarker = null;
         let simMarker = null;
@@ -1745,12 +1714,7 @@
                     );
                 }
 
-                if (Array.isArray(data.map_layers) && data.map_layers.length > 0) {
-                    mapLayersCatalog = data.map_layers;
-                }
-                if (data.active_map_layer) {
-                    await switchMapLayer(data.active_map_layer, false);
-                }
+
 
                 currentSpeedKmh = data.speed_kmh || 17.0;
                 currentPikminTier = data.pikmin_tier || 5;
@@ -2252,7 +2216,7 @@
                     </div>
                     <div>
                         ${isConn ? 
-                            `<button class="btn btn-tool" style="width:auto; padding:3px 8px; margin:0; color:#ff3b30;" onclick="disconnectSingleDevice('${d.udid}')">中斷</button>` :
+                            `<button class="btn ${isReturningHome ? 'btn-force' : 'btn-tool'}" style="width:auto; padding:3px 8px; margin:0; ${isReturningHome ? '' : 'color:#ff3b30;'}" onclick="disconnectSingleDevice('${d.udid}')">${isReturningHome ? '⚡ 強制中斷' : '中斷'}</button>` :
                             `<button class="btn btn-start" style="width:auto; padding:3px 10px; margin:0; font-size:11px;" ${window.isConnectingDevice ? 'disabled' : ''} onclick="connectSingleDevice('${d.udid}', this)">${window.isConnectingDevice ? '連線中...' : '連線'}</button>`
                         }
                     </div>
@@ -2312,14 +2276,31 @@
         }
 
         async function disconnectSingleDevice(udid) {
-            await fetch('/api/device/disconnect', {
+            let res = await fetch('/api/device/disconnect', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ udid: udid })
             });
+            let data = await res.json();
+            if (data.status === 'returning_home') {
+                isStopping = true;
+                isReturningHome = true;
+                isCruising = false;
+                isCruisePaused = false;
+                showToast(`🏠 已進入平滑回歸模式 (依設定速度 ${data.speed_kmh} km/h 返回起點，再點一次可強制中斷)`);
+                setTimeout(refreshDevices, 200);
+                setTimeout(fetchStatus, 200);
+                return;
+            }
+            isSimulating = false;
+            isStopping = false;
+            isReturningHome = false;
+            isCruising = false;
+            isCruisePaused = false;
+            returningToLoopOrigin = false;
             if (returnHomePolyline) { map.removeLayer(returnHomePolyline); returnHomePolyline = null; }
             if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
-            showToast("已中斷長連接");
+            showToast("已中斷長連接並還原真實定位");
             setTimeout(refreshDevices, 300);
             setTimeout(fetchStatus, 300);
         }
