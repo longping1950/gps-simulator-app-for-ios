@@ -339,14 +339,25 @@
             background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;
         }
         .modal-card {
-            background: white; border-radius: 16px; max-width: 560px; width: 92%;
-            padding: 22px; box-shadow: 0 14px 36px rgba(0,0,0,0.3); max-height: 85vh; display: flex; flex-direction: column;
+            background: white; border-radius: 16px; max-width: 740px; width: 94%;
+            padding: 20px; box-shadow: 0 14px 36px rgba(0,0,0,0.3); max-height: 88vh; display: flex; flex-direction: column;
         }
-        .step-block { background: #f8f9fa; border-left: 4px solid #007aff; padding: 10px 14px; margin: 8px 0; border-radius: 4px; font-size: 13px; line-height: 1.6; }
+        .step-block { background: #f8f9fa; border-left: 4px solid #007aff; padding: 10px 14px; margin: 8px 0; border-radius: 6px; font-size: 12.5px; line-height: 1.6; }
 
+        .guide-tabs {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px;
+            background: #f1f5f9; padding: 4px; border-radius: 10px; margin-top: 10px; border: 1px solid #e2e8f0;
+        }
+        .guide-tab-btn {
+            background: transparent; border: none; padding: 7px 8px; border-radius: 7px;
+            font-size: 12px; font-weight: 700; color: #475569; cursor: pointer; transition: 0.18s;
+        }
+        .guide-tab-btn.active {
+            background: #ffffff; color: #007aff; box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
         .guide-scroll-container {
             overflow-y: auto; flex: 1; padding-right: 6px; margin: 10px 0;
-            display: flex; flex-direction: column; gap: 16px;
+            display: flex; flex-direction: column; gap: 12px;
         }
         .guide-step-card { display: flex; flex-direction: column; gap: 6px; }
         .guide-step-text { font-size: 13px; font-weight: 600; color: #1f2937; }
@@ -355,6 +366,40 @@
             border: 1px solid #e5e7eb; background: #f9fafb;
         }
         .guide-img-wrap img { width: 100%; height: auto; display: block; }
+        .guide-table {
+            width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 4px; background: #fff;
+        }
+        .guide-table th, .guide-table td {
+            border: 1px solid #e2e8f0; padding: 6px 7px; text-align: center;
+        }
+        .guide-table th { background: #eff6ff; color: #1e3a8a; font-weight: 700; }
+        .champ-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .champ-card { border-radius: 12px; padding: 12px; border: 1.5px solid #e2e8f0; }
+
+        .dir-mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px; }
+        .dir-mode-btn {
+            background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px;
+            padding: 5px 6px; font-size: 11px; font-weight: 700; color: #334155; cursor: pointer; transition: 0.18s;
+        }
+        .dir-mode-btn.active {
+            background: #eef2ff; border-color: #6366f1; color: #3730a3; box-shadow: 0 2px 5px rgba(99,102,241,0.16);
+        }
+        .spd-mode-btn.active-champ-petal {
+            background: linear-gradient(135deg, #059669, #10b981); color: white; border-color: #059669;
+            box-shadow: 0 3px 8px rgba(16, 185, 129, 0.25);
+        }
+        .spd-mode-btn.active-champ-flower {
+            background: linear-gradient(135deg, #c026d3, #db2777); color: white; border-color: #c026d3;
+            box-shadow: 0 3px 8px rgba(219, 39, 119, 0.25);
+        }
+        .btn-teleport-standalone {
+            background: linear-gradient(135deg, #af52de, #7c3aed); color: white;
+            border: 1.5px solid #6d28d9; box-shadow: 0 3px 10px rgba(124, 58, 237, 0.22);
+        }
+        .btn-teleport-standalone.active {
+            background: linear-gradient(135deg, #f59e0b, #d97706); color: white;
+            border-color: #b45309; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.28);
+        }
 
         @keyframes pulse { 0% { transform: scale(1); } 100% { transform: scale(1.02); } }
     </style>
@@ -402,6 +447,14 @@
                 </div>
             </div>
 
+            <!-- ⚡ 獨立瞬移模式按鈕 (啟用後點擊地圖直接瞬移；在航點模式自動隱藏) -->
+            <div id="teleport-mode-box" style="margin-top:6px;">
+                <button id="btn-teleport-mode" class="btn btn-teleport-standalone" style="margin-top:2px;" onclick="toggleTeleportMode()">⚡ 啟用「點擊地圖直接瞬移」</button>
+                <div id="teleport-mode-hint" style="display:none; background:#fef3c7; border:1px solid #fde68a; color:#b45309; border-radius:8px; padding:5px 8px; margin-top:4px; font-size:11px; font-weight:700; text-align:center;">
+                    👆 點擊地圖任意位置將立即瞬移至該處
+                </div>
+            </div>
+
             <!-- 巡航控制按鈕區 (支援暫停後原處接續 & 重跑) -->
             <div id="cruise-action-box" style="margin-top:6px;">
                 <div id="cruise-start-row" style="display:none; gap:6px;">
@@ -409,7 +462,6 @@
                     <button id="btn-restart-cruise" class="btn btn-tool" style="width:auto; padding:8px 10px; margin-top:4px; display:none; font-size:11.5px;" title="從點 1 重新開始巡航" onclick="startCruise(true)">🔄 點1重跑</button>
                 </div>
                 <button id="btn-stop-cruise" class="btn btn-tool" style="display:none; color:#ff3b30; border-color:#fca5a5; background:#fef2f2;" onclick="stopCruise()">⏸️ 暫停巡航 (保留當前航點進度)</button>
-                <button id="btn-teleport" class="btn btn-teleport" style="display:none;" onclick="confirmTeleport()">🚀 直接瞬移至目標航點</button>
             </div>
 
             <!-- ⏱️ 巡航 / 平滑返航即時進度卡 -->
@@ -431,11 +483,11 @@
                     <span id="route-remain-label">前往點 1 剩餘:</span> <span id="route-remain">0 m</span> <span id="pause-badge" style="display:none; color:#e02424;">(擬真停等中...)</span>
                 </div>
                 <div id="calc-loop-progress" style="display:none; color:#0284c7; margin-top:2px; font-weight:bold;">
-                    循環圈數: 第 <span id="loop-current-idx">1</span> / <span id="loop-target-count">1</span> 圈
+                    循環圈數: 第 <span id="loop-current-idx">1</span> / <span id="loop-target-count">1</span> 圈 <span id="loop-origin-returning-tag" style="color:#059669;"></span>
                 </div>
             </div>
 
-            <!-- 🎛️ App 風格功能開關組 (iOS Switches) -->
+            <!-- 🎛️ App 風格功能開關組 (已移除左側冗餘的新增航點開關) -->
             <div class="switch-group-card">
                 <div class="switch-row">
                     <div>
@@ -445,17 +497,6 @@
                     <label class="ios-switch">
                         <input type="checkbox" id="sw-autofollow" checked onchange="onToggleAutoFollow(this.checked)" />
                         <span class="ios-slider blue"></span>
-                    </label>
-                </div>
-
-                <div class="switch-row">
-                    <div>
-                        <div class="switch-label">🎯 點擊地圖新增航點</div>
-                        <div class="switch-sub">開啟後直接點擊地圖即可串接路徑點</div>
-                    </div>
-                    <label class="ios-switch">
-                        <input type="checkbox" id="sw-pick-route" onchange="onToggleRoutePickMode(this.checked)" />
-                        <span class="ios-slider"></span>
                     </label>
                 </div>
 
@@ -510,34 +551,54 @@
                 </div>
             </div>
 
-            <!-- 🌸 皮克敏數量 5 階段 + 極速 15 km/h & 快速移動 800 km/h + 產出率計算 -->
+            <!-- 🌸 皮克敏數量 5 階段 + 幾何推土機模型 + 最佳甜蜜點快捷鍵 -->
             <div class="pikmin-section-card">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:12.5px; font-weight:700; color:#be185d;">🌸 皮克敏隊伍人數 (5 階段)</span>
-                    <span style="font-size:11.5px; font-weight:700; color:#0f172a;">時速上限: <span id="speed-label" style="color:#007aff;">15</span> km/h</span>
+                    <span style="font-size:12.5px; font-weight:700; color:#be185d;">🌸 皮克敏幾何種花模型 (5 階段)</span>
+                    <span style="font-size:11.5px; font-weight:700; color:#0f172a;">時速: <span id="speed-label" style="color:#007aff;">15</span> km/h</span>
                 </div>
 
                 <!-- 5 階段按鈕 -->
                 <div class="pikmin-tier-grid">
-                    <button id="tier-btn-1" class="tier-btn" onclick="selectPikminTier(1, true)">
+                    <button id="tier-btn-1" class="tier-btn" onclick="selectPikminTier(1, false)">
                         <span class="t-title">1~9隻</span>
                         <span class="t-sub">2×1·30s</span>
                     </button>
-                    <button id="tier-btn-2" class="tier-btn" onclick="selectPikminTier(2, true)">
+                    <button id="tier-btn-2" class="tier-btn" onclick="selectPikminTier(2, false)">
                         <span class="t-title">10~19隻</span>
                         <span class="t-sub">3×2·20s</span>
                     </button>
-                    <button id="tier-btn-3" class="tier-btn" onclick="selectPikminTier(3, true)">
+                    <button id="tier-btn-3" class="tier-btn" onclick="selectPikminTier(3, false)">
                         <span class="t-title">20~29隻</span>
                         <span class="t-sub">4×3·15s</span>
                     </button>
-                    <button id="tier-btn-4" class="tier-btn" onclick="selectPikminTier(4, true)">
+                    <button id="tier-btn-4" class="tier-btn" onclick="selectPikminTier(4, false)">
                         <span class="t-title">30~39隻</span>
                         <span class="t-sub">5×4·12s</span>
                     </button>
-                    <button id="tier-btn-5" class="tier-btn active" onclick="selectPikminTier(5, true)">
+                    <button id="tier-btn-5" class="tier-btn active" onclick="selectPikminTier(5, false)">
                         <span class="t-title">40滿編</span>
                         <span class="t-sub">6×5·10s</span>
+                    </button>
+                </div>
+
+                <!-- 幾何刀鋒方向選擇 (東西向 vs 南北向) -->
+                <div class="dir-mode-grid">
+                    <button id="dir-btn-ew" class="dir-mode-btn active" onclick="selectPlantingDirection('EW')">
+                        ↔️ 東西向刀鋒 (寬·高產)
+                    </button>
+                    <button id="dir-btn-ns" class="dir-mode-btn" onclick="selectPlantingDirection('NS')">
+                        ↕️ 南北向刀鋒 (窄·約74%)
+                    </button>
+                </div>
+
+                <!-- 最佳花瓣率 & 最高產花量 快捷鍵 -->
+                <div class="speed-mode-grid">
+                    <button id="spd-btn-champ-petal" class="spd-mode-btn" onclick="applyChampionPreset('petal')" title="30~39隻 @ 16.5 km/h：每片花瓣可種 61.1 朵花 (全遊戲最省花瓣)">
+                        🏆 最佳花瓣率 16.5
+                    </button>
+                    <button id="spd-btn-champ-flower" class="spd-mode-btn" onclick="applyChampionPreset('flower')" title="40隻滿編 @ 17.0 km/h：每分鐘可種 378 朵花 (全遊戲最高產量)">
+                        🚀 最高產花量 17.0
                     </button>
                 </div>
 
@@ -553,10 +614,10 @@
 
                 <!-- 細部時速微調滑桿 -->
                 <div style="margin-top:6px;">
-                    <input type="range" id="speed-slider" min="1" max="100" step="1" value="15" style="width: 100%; margin: 2px 0;" />
+                    <input type="range" id="speed-slider" min="1" max="100" step="0.5" value="15" style="width: 100%; margin: 2px 0;" />
                     <div style="display:flex; justify-content:space-between; font-size:10px; color:#64748b;">
                         <span>散步 1 km/h</span>
-                        <span>種花上限 15~20 km/h</span>
+                        <span>安全速限 16.5~18 km/h</span>
                         <span>100 km/h</span>
                     </div>
                 </div>
@@ -564,16 +625,16 @@
                 <!-- 🌸 當前階段參數與行程花瓣消耗 / 產出率試算 -->
                 <div class="pikmin-stats-box">
                     <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #fce7f3; padding-bottom:4px;">
-                        <b style="color:#be185d;" id="pk-tier-name">40 隻（滿編）種花效率</b>
-                        <span style="background:#fce7f3; color:#be185d; padding:1px 6px; border-radius:6px; font-weight:700;" id="pk-efficiency">產出率 5.0 朵/片</span>
+                        <b style="color:#be185d;" id="pk-tier-name">40 隻 (滿編) · 東西向</b>
+                        <span style="background:#fce7f3; color:#be185d; padding:1px 6px; border-radius:6px; font-weight:700;" id="pk-efficiency">利用率 55.6 朵/片</span>
                     </div>
                     <div class="pikmin-stat-grid">
-                        <div class="pikmin-stat-item"><span>判定週期:</span> <b id="pk-period">10 秒</b></div>
-                        <div class="pikmin-stat-item"><span>種花矩陣:</span> <b id="pk-matrix">6×5 (單次 30 朵)</b></div>
+                        <div class="pikmin-stat-item"><span>耗花週期:</span> <b id="pk-period">10 秒</b></div>
+                        <div class="pikmin-stat-item"><span>矩陣刀鋒:</span> <b id="pk-matrix">6×5 (刀鋒6格)</b></div>
                         <div class="pikmin-stat-item"><span>每分消耗:</span> <b id="pk-petal-min">6 片/分</b></div>
                         <div class="pikmin-stat-item"><span>每時消耗:</span> <b id="pk-petal-hr">360 片/時</b></div>
-                        <div class="pikmin-stat-item"><span>每分產花:</span> <b id="pk-flower-min">180 朵/分</b></div>
-                        <div class="pikmin-stat-item"><span>每時產花:</span> <b id="pk-flower-hr">10,800 朵/時</b></div>
+                        <div class="pikmin-stat-item"><span>每分產花:</span> <b id="pk-flower-min">333 朵/分</b></div>
+                        <div class="pikmin-stat-item"><span>每時產花:</span> <b id="pk-flower-hr">20,000 朵/時</b></div>
                     </div>
 
                     <!-- 行程總消耗與產出預估 -->
@@ -586,8 +647,11 @@
                             <span>🌺 行程消耗花瓣: <b id="pk-trip-petals" style="color:#db2777; font-size:12px;">0 片</b></span>
                             <span>🌼 預估總產花: <b id="pk-trip-flowers" style="color:#16a34a; font-size:12px;">0 朵</b></span>
                         </div>
+                        <div id="pk-cooldown-warn" style="display:none; color:#b45309; font-weight:600; font-size:10.5px; margin-top:3px;">
+                            ⚠️ 單圈時間少於 5 分鐘 (300秒冷卻)，重複繞圈將無法產花！
+                        </div>
                         <div id="pk-overspeed-warn" style="display:none; color:#dc2626; font-weight:600; font-size:10.5px; margin-top:3px;">
-                            ⚠️ 目前時速超過 20 km/h，遊戲內將觸發高速限制無法種花！
+                            ⚠️ 目前時速 ≥ 20 km/h，遊戲內將觸發高速鎖定無法種花！
                         </div>
                     </div>
                 </div>
@@ -618,9 +682,10 @@
                 <button id="tab-btn-waypoints" class="seg-tab" onclick="switchRightTab('waypoints')">📍 即時路徑 (<span id="wp-count-badge">0</span>)</button>
             </div>
 
-            <!-- 視圖 1：📂 常用路線庫 (預設顯示) -->
+            <!-- 視圖 1：📂 常用路線庫 (預設顯示，並內建新增航點按鈕) -->
             <div id="view-saved-routes" style="display:flex; flex-direction:column; margin-top:6px;">
-                <div class="list-container" id="saved-routes-list" style="max-height:48vh;"></div>
+                <button id="btn-route-mode-lib" class="btn btn-tool" style="margin:0 0 6px 0; font-size:11.5px; padding:7px;" onclick="onToggleRoutePickModeFromLibrary()">🎯 點擊地圖新增航點 (規劃新路線)</button>
+                <div class="list-container" id="saved-routes-list" style="max-height:44vh;"></div>
                 <div style="display:flex; gap:4px; margin-top:6px;">
                     <input type="file" id="gpx-file-input" accept=".gpx,.json" style="display:none;" onchange="handleRouteFileImport(event)" />
                     <button class="btn btn-tool" style="margin:0; padding:6px; font-size:11.5px;" onclick="document.getElementById('gpx-file-input').click()">📥 匯入 GPX / JSON 路線</button>
@@ -630,7 +695,7 @@
             <!-- 視圖 2：📍 即時路徑航點清單 -->
             <div id="view-waypoints" style="display:none; flex-direction:column; margin-top:6px;">
                 <div style="display:flex; gap:6px; align-items:center;">
-                    <button id="btn-route-mode" class="btn btn-tool" style="margin:0; font-size:11.5px; padding:6px;" onclick="onToggleRoutePickMode(!isPickingRoute)">🎯 點擊地圖加點</button>
+                    <button id="btn-route-mode" class="btn btn-tool" style="margin:0; font-size:11.5px; padding:6px;" onclick="onToggleRoutePickMode(!isPickingRoute)">🎯 點擊地圖新增航點</button>
                     <button class="btn btn-tool" style="width:64px; margin:0; font-size:11.5px; padding:6px; color:#ef4444;" onclick="clearAllRoute()">🗑️ 清空</button>
                 </div>
 
@@ -639,9 +704,9 @@
                         <span style="font-weight:bold;">🔁 循環模式</span>
                         <div style="display:flex; gap:4px; align-items:center;">
                             <select id="sel-loop-mode" onchange="handleLoopModeChange()" style="padding:3px 6px; border-radius:6px; border:1px solid #cbd5e1; font-size:11px;">
-                                <option value="none">單次巡航</option>
-                                <option value="infinite">無限循環 (♾️)</option>
-                                <option value="custom">指定圈數</option>
+                                <option value="none">單次巡航 (至終點)</option>
+                                <option value="infinite">無限循環回原點 (♾️)</option>
+                                <option value="custom">指定圈數回原點</option>
                             </select>
                             <div id="loop-count-box" style="display:none; align-items:center; gap:2px;">
                                 <input type="number" id="input-loop-count" min="1" max="999" value="2" style="width:38px; padding:2px 4px; border:1px solid #cbd5e1; border-radius:4px;" onchange="handleLoopCountChange()" />
@@ -719,43 +784,136 @@
     <div id="guide-modal" class="modal-overlay" onclick="closeGuide(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #eee; padding-bottom: 8px;">
-                <h3 style="margin:0;">📱 iPhone 開發者模式與連線說明</h3>
+                <h3 style="margin:0; font-size:16px;">📖 皮克敏幾何種花模型與連線指引</h3>
                 <button class="collapse-toggle-btn" onclick="closeGuide()">✕</button>
             </div>
 
+            <!-- 內部分頁切換器 (3 個分頁) -->
+            <div class="guide-tabs">
+                <button type="button" class="guide-tab-btn active" id="gtab-btn-recommend" onclick="switchGuideTab('recommend')">🏆 最佳效率推薦</button>
+                <button type="button" class="guide-tab-btn" id="gtab-btn-math" onclick="switchGuideTab('math')">📐 幾何公式與速查表</button>
+                <button type="button" class="guide-tab-btn" id="gtab-btn-dev" onclick="switchGuideTab('dev')">📱 開發者模式與連線</button>
+            </div>
+
             <div class="guide-scroll-container">
-                <div class="step-block" style="border-left-color: #ff9500; margin-top: 0;">
-                    <b>💡 使用方式說明：</b><br>
-                    首次使用時，請先將 iPhone 透過傳輸線連接至 Mac 並在手機上點選「信任這部電腦」，接著依下方步驟啟用「開發者模式」。初次連線時系統會自動配置開發者映像檔並開啟 Wi-Fi 支援，完成後即可在相同 Wi-Fi 環境下使用無線連線！
+                <!-- 分頁 1：🏆 最佳花瓣利用率 & 最高產花量推薦 -->
+                <div id="gpanel-recommend" style="display:flex; flex-direction:column; gap:10px;">
+                    <div class="champ-grid">
+                        <div class="champ-card" style="background:linear-gradient(135deg,#ecfdf5,#d1fae5); border-color:#10b981;">
+                            <div style="font-size:11.5px; font-weight:800; color:#047857;">🏆 花瓣利用率最佳（最省稀有花瓣）</div>
+                            <div style="font-size:15px; font-weight:900; color:#064e3b; margin:4px 0;">30 ～ 39 隻 ＠ 16.5 km/h</div>
+                            <div style="font-size:12px; color:#065f46; line-height:1.5;">
+                                • <b>花瓣利用率：61.1 朵 / 片</b>（全遊戲最高！）<br>
+                                • <b>每分鐘種花：約 306 朵 / 分</b>（每 12 秒耗 1 片）<br>
+                                • 耗花速度比滿編慢 20%，搭配 5×4 矩陣與 16.5 km/h 巡航，將單片花瓣效益推至極限。
+                            </div>
+                            <button class="btn btn-stop" style="margin-top:8px; padding:6px; font-size:11.5px;" onclick="applyChampionPreset('petal'); closeGuide();">⚡ 一鍵套用「最佳花瓣率 (30~39隻·16.5km/h)」</button>
+                        </div>
+
+                        <div class="champ-card" style="background:linear-gradient(135deg,#fdf4ff,#fae8ff); border-color:#d946ef;">
+                            <div style="font-size:11.5px; font-weight:800; color:#86198f;">🚀 單分鐘總產量最佳（極速刷花/金幣）</div>
+                            <div style="font-size:15px; font-weight:900; color:#701a75; margin:4px 0;">40 隻 (滿編) ＠ 17.0 km/h</div>
+                            <div style="font-size:12px; color:#701a75; line-height:1.5;">
+                                • <b>每分鐘種花：約 378 朵 / 分</b>（全遊戲最高！）<br>
+                                • <b>每小時總產量：約 22,680 朵 / 時</b>（63.0 朵/片）<br>
+                                • 滿編 6×5 矩陣擁有最寬 30 公尺收割刀鋒，適合普通花瓣充足時極速衝刺產量。
+                            </div>
+                            <button class="btn btn-teleport" style="margin-top:8px; padding:6px; font-size:11.5px;" onclick="applyChampionPreset('flower'); closeGuide();">⚡ 一鍵套用「最高產花量 (40滿編·17.0km/h)」</button>
+                        </div>
+                    </div>
+
+                    <div class="step-block" style="border-left-color:#10b981; margin:0;">
+                        <b>🧭 實戰三大黃金法則（幾何推土機模型）：</b><br>
+                        1. <b>路線優先畫「東西向（橫向）」：</b>遊戲底層網格為 <b>南北 5.0m × 東西 4.5m</b>。東西向移動時迎風刀鋒最寬（滿編 6 格 = 30m），且跨越單格僅需 4.5m；若改走南北向，產花量會直接打 <b>74 折</b>（縮水約 26%）。<br>
+                        2. <b>循環路線單圈時間必須 ＞ 5 分鐘（300 秒）：</b>同一網格有 <b>300 秒冷卻時間 ($T_{\text{cd}}$)</b>，5 分鐘內走回原格不會產花。在時速 16.5 km/h 下，建議規劃總長 <b>至少 1.4 公里以上</b> 的封閉迴圈。<br>
+                        3. <b>絕對不要超過 18.0 km/h：</b>安全速限為 18.0 km/h，一旦 $\ge 20\text{ km/h}$ 會觸發防作弊鎖定（0 朵/分）。
+                    </div>
                 </div>
 
-                <div class="guide-step-card">
-                    <div class="guide-step-text">步驟 1：打開「設定」➔ 選擇「隱私權與安全性」</div>
-                    <div class="guide-img-wrap"><img src="/static/images/1.png" alt="步驟 1 截圖"></div>
+                <!-- 分頁 2：📐 幾何演算法與實測速查表 -->
+                <div id="gpanel-math" style="display:none; flex-direction:column; gap:10px;">
+                    <div class="step-block" style="margin:0;">
+                        <b>📐 底層基準常數與穩態直線公式：</b><br>
+                        • 網格尺寸：南北 $H_{\text{cell}} = 5.0\text{ m}$、東西 $W_{\text{cell}} = 4.5\text{ m}$｜採樣週期 $t_{\text{sample}} = 2.0\text{ s}$｜同格冷卻 $T_{\text{cd}} = 300\text{ s}$<br>
+                        • 每分鐘產花量 $F_{\text{min}} = \frac{60 \times (V/3.6) \times K}{L_{\text{step}}}$｜花瓣利用率 $E_{\text{petal}} = \frac{(V/3.6) \times T_{\text{petal}} \times K}{L_{\text{step}}}$
+                    </div>
+
+                    <table class="guide-table">
+                        <thead>
+                            <tr>
+                                <th>隊伍人數</th>
+                                <th>耗花週期</th>
+                                <th>每分耗花</th>
+                                <th>判定矩陣(南北×東西)</th>
+                                <th>東西向刀鋒($K_{\text{EW}}$)</th>
+                                <th>南北向刀鋒($K_{\text{NS}}$)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><b>1 ～ 9 隻</b></td><td>30 秒</td><td>2 片</td><td>2 × 1</td><td>2 格 (10.0m)</td><td>1 格 (4.5m)</td></tr>
+                            <tr><td><b>10 ～ 19 隻</b></td><td>20 秒</td><td>3 片</td><td>3 × 2</td><td>3 格 (15.0m)</td><td>2 格 (9.0m)</td></tr>
+                            <tr><td><b>20 ～ 29 隻</b></td><td>15 秒</td><td>4 片</td><td>4 × 3</td><td>4 格 (20.0m)</td><td>3 格 (13.5m)</td></tr>
+                            <tr><td><b>30 ～ 39 隻</b></td><td>12 秒</td><td>5 片</td><td>5 × 4</td><td>5 格 (25.0m)</td><td>4 格 (18.0m)</td></tr>
+                            <tr><td><b>40 隻(滿編)</b></td><td>10 秒</td><td>6 片</td><td>6 × 5</td><td>6 格 (30.0m)</td><td>5 格 (22.5m)</td></tr>
+                        </tbody>
+                    </table>
+
+                    <table class="guide-table">
+                        <thead>
+                            <tr>
+                                <th>隊伍人數</th>
+                                <th>巡航時速</th>
+                                <th>每分產花</th>
+                                <th>每時產花</th>
+                                <th>花瓣利用率</th>
+                                <th>實戰評級</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>1 ～ 9 隻</td><td>4 / 8 / <b>12 km/h</b></td><td>24 / 42 / <b>60 朵</b></td><td>1,440 ~ <b>3,600 朵</b></td><td>12 / 21 / <b>30 朵/片</b></td><td>⭐ 12km/h 小隊最佳</td></tr>
+                            <tr><td>10 ～ 19 隻</td><td>10 / <b>14 km/h</b></td><td>110 / <b>155 朵</b></td><td>6,600 / <b>9,300 朵</b></td><td>36.7 / <b>51.7 朵/片</b></td><td>⭐ 14km/h 區間最佳</td></tr>
+                            <tr><td>20 ～ 29 隻</td><td>12 / <b>15 km/h</b></td><td>178 / <b>222 朵</b></td><td>10,680 / <b>13,320 朵</b></td><td>44.5 / <b>55.5 朵/片</b></td><td>⭐ 15km/h 區間最佳</td></tr>
+                            <tr style="background:#ecfdf5; font-weight:700;"><td>30 ～ 39 隻</td><td><b>16.5 km/h</b></td><td><b>~305 朵</b></td><td><b>~18,300 朵</b></td><td><b>61.0 朵/片</b></td><td>🏆 全遊戲省花率冠軍</td></tr>
+                            <tr style="background:#fdf4ff; font-weight:700;"><td>40 隻(滿編)</td><td>15 / <b>17.0 km/h</b></td><td>333 / <b>~378 朵</b></td><td>19,980 / <b>~22,680 朵</b></td><td>55.5 / <b>63.0 朵/片</b></td><td>🏆 全遊戲總產量冠軍</td></tr>
+                        </tbody>
+                    </table>
                 </div>
-                <div class="guide-step-card">
-                    <div class="guide-step-text">步驟 2：向下滑動到底部，點選「開發者模式」</div>
-                    <div class="guide-img-wrap"><img src="/static/images/2.png" alt="步驟 2 截圖"></div>
-                </div>
-                <div class="guide-step-card">
-                    <div class="guide-step-text">步驟 3：開啟「開發者模式」</div>
-                    <div class="guide-img-wrap"><img src="/static/images/3.png" alt="步驟 3 截圖"></div>
-                </div>
-                <div class="guide-step-card">
-                    <div class="guide-step-text">步驟 4：在彈出的確認視窗中點擊「重新啟動」重新開機解鎖</div>
-                    <div class="guide-img-wrap"><img src="/static/images/4.png" alt="步驟 4 截圖"></div>
-                </div>
-                <div class="guide-step-card">
-                    <div class="guide-step-text">步驟 5：點擊「開啟」開發者模式</div>
-                    <div class="guide-img-wrap"><img src="/static/images/5.png" alt="步驟 5 截圖"></div>
-                </div>
-                <div class="guide-step-card">
-                    <div class="guide-step-text">步驟 6：輸入手機密碼</div>
-                    <div class="guide-img-wrap"><img src="/static/images/6.png" alt="步驟 6 截圖"></div>
+
+                <!-- 分頁 3：📱 iPhone 開發者模式與連線說明 -->
+                <div id="gpanel-dev" style="display:none; flex-direction:column; gap:14px;">
+                    <div class="step-block" style="border-left-color: #ff9500; margin-top: 0;">
+                        <b>💡 使用方式說明：</b><br>
+                        首次使用時，請先將 iPhone 透過傳輸線連接至 Mac 並在手機上點選「信任這部電腦」，接著依下方步驟啟用「開發者模式」。初次連線時系統會自動配置開發者映像檔並開啟 Wi-Fi 支援，完成後即可在相同 Wi-Fi 環境下使用無線連線！
+                    </div>
+
+                    <div class="guide-step-card">
+                        <div class="guide-step-text">步驟 1：打開「設定」➔ 選擇「隱私權與安全性」</div>
+                        <div class="guide-img-wrap"><img src="/static/images/1.png" alt="步驟 1 截圖"></div>
+                    </div>
+                    <div class="guide-step-card">
+                        <div class="guide-step-text">步驟 2：向下滑動到底部，點選「開發者模式」</div>
+                        <div class="guide-img-wrap"><img src="/static/images/2.png" alt="步驟 2 截圖"></div>
+                    </div>
+                    <div class="guide-step-card">
+                        <div class="guide-step-text">步驟 3：開啟「開發者模式」</div>
+                        <div class="guide-img-wrap"><img src="/static/images/3.png" alt="步驟 3 截圖"></div>
+                    </div>
+                    <div class="guide-step-card">
+                        <div class="guide-step-text">步驟 4：在彈出的確認視窗中點擊「重新啟動」重新開機解鎖</div>
+                        <div class="guide-img-wrap"><img src="/static/images/4.png" alt="步驟 4 截圖"></div>
+                    </div>
+                    <div class="guide-step-card">
+                        <div class="guide-step-text">步驟 5：點擊「開啟」開發者模式</div>
+                        <div class="guide-img-wrap"><img src="/static/images/5.png" alt="步驟 5 截圖"></div>
+                    </div>
+                    <div class="guide-step-card">
+                        <div class="guide-step-text">步驟 6：輸入手機密碼</div>
+                        <div class="guide-img-wrap"><img src="/static/images/6.png" alt="步驟 6 截圖"></div>
+                    </div>
                 </div>
             </div>
 
-            <button class="btn btn-start" style="margin-top: 10px;" onclick="closeGuide()">我知道了，關閉說明</button>
+            <button class="btn btn-start" style="margin-top: 8px;" onclick="closeGuide()">我知道了，關閉說明</button>
         </div>
     </div>
 
@@ -778,14 +936,84 @@
             }
         })();
 
-        // 🌸 皮克敏 5 階段規格表 (前端同步備份供即時預覽計算)
+        // 🌸 皮克敏幾何推土機模型常數與 5 階段規格表
+        const H_CELL_M = 5.0;       // 網格南北長度 (m)
+        const W_CELL_M = 4.5;       // 網格東西寬度 (m)
+        const T_SAMPLE_SEC = 2.0;   // 位置判定採樣週期 (s)
+        const T_COOLDOWN_SEC = 300; // 同格重複種植冷卻時間 (300s)
+        const V_MAX_KMH = 18.0;     // 遊戲最高安全速限
+        const V_SAFE_KMH = 16.5;    // 推薦巡航安全上限
+
         const PIKMIN_TIERS = {
-            1: { tier: 1, label: "1 ～ 9 隻", period_sec: 30, matrix: "2×1", flowers_per_tick: 2, petals_per_min: 2, petals_per_hr: 120, flowers_per_min: 4, flowers_per_hr: 240, efficiency: 2.0, recommended_kmh: 4 },
-            2: { tier: 2, label: "10 ～ 19 隻", period_sec: 20, matrix: "3×2", flowers_per_tick: 6, petals_per_min: 3, petals_per_hr: 180, flowers_per_min: 18, flowers_per_hr: 1080, efficiency: 2.0, recommended_kmh: 6 },
-            3: { tier: 3, label: "20 ～ 29 隻", period_sec: 15, matrix: "4×3", flowers_per_tick: 12, petals_per_min: 4, petals_per_hr: 240, flowers_per_min: 48, flowers_per_hr: 2880, efficiency: 3.0, recommended_kmh: 8 },
-            4: { tier: 4, label: "30 ～ 39 隻", period_sec: 12, matrix: "5×4", flowers_per_tick: 20, petals_per_min: 5, petals_per_hr: 300, flowers_per_min: 100, flowers_per_hr: 6000, efficiency: 4.0, recommended_kmh: 10 },
-            5: { tier: 5, label: "40 隻（滿編）", period_sec: 10, matrix: "6×5", flowers_per_tick: 30, petals_per_min: 6, petals_per_hr: 360, flowers_per_min: 180, flowers_per_hr: 10800, efficiency: 5.0, recommended_kmh: 12 }
+            1: { tier: 1, pikmin_count: 9, label: "1 ～ 9 隻", period_sec: 30, matrix: "2×1", grid_h: 2, grid_w: 1, petals_per_min: 2, petals_per_hr: 120, recommended_kmh: 12.0 },
+            2: { tier: 2, pikmin_count: 19, label: "10 ～ 19 隻", period_sec: 20, matrix: "3×2", grid_h: 3, grid_w: 2, petals_per_min: 3, petals_per_hr: 180, recommended_kmh: 14.0 },
+            3: { tier: 3, pikmin_count: 29, label: "20 ～ 29 隻", period_sec: 15, matrix: "4×3", grid_h: 4, grid_w: 3, petals_per_min: 4, petals_per_hr: 240, recommended_kmh: 15.0 },
+            4: { tier: 4, pikmin_count: 39, label: "30 ～ 39 隻", period_sec: 12, matrix: "5×4", grid_h: 5, grid_w: 4, petals_per_min: 5, petals_per_hr: 300, recommended_kmh: 16.5 },
+            5: { tier: 5, pikmin_count: 40, label: "40 隻 (滿編)", period_sec: 10, matrix: "6×5", grid_h: 6, grid_w: 5, petals_per_min: 6, petals_per_hr: 360, recommended_kmh: 17.0 }
         };
+
+        function calculatePlantingEfficiency(pikminCount, speedKmh, direction = 'EW') {
+            let tierId = 5, tPetal = 10.0, gridH = 6, gridW = 5;
+            if (pikminCount <= 9) { tierId = 1; tPetal = 30.0; gridH = 2; gridW = 1; }
+            else if (pikminCount <= 19) { tierId = 2; tPetal = 20.0; gridH = 3; gridW = 2; }
+            else if (pikminCount <= 29) { tierId = 3; tPetal = 15.0; gridH = 4; gridW = 3; }
+            else if (pikminCount <= 39) { tierId = 4; tPetal = 12.0; gridH = 5; gridW = 4; }
+
+            const petalsPerMin = 60.0 / tPetal;
+            const petalsPerHr = Math.round(petalsPerMin * 60);
+            const dir = (direction || 'EW').toUpperCase();
+            const bladeWidth = dir === 'EW' ? gridH : gridW;
+            const stepLen = dir === 'EW' ? W_CELL_M : H_CELL_M;
+
+            if (speedKmh >= 20.0) {
+                return {
+                    status: 'OVER_SPEED_DROP',
+                    over_speed_limit: true,
+                    tier: tierId,
+                    pikmin_tier: `${gridH}×${gridW}`,
+                    direction: dir,
+                    petal_interval_sec: tPetal,
+                    petals_per_min: petalsPerMin,
+                    petals_per_hr: petalsPerHr,
+                    flowers_per_min: 0,
+                    flowers_per_hr: 0,
+                    flowers_per_petal: 0.0,
+                    blade_cells: bladeWidth
+                };
+            }
+
+            const vMs = Math.max(0, speedKmh) / 3.6;
+            const step2s = vMs * T_SAMPLE_SEC;
+            const rowsPer2s = step2s / stepLen;
+            let flowersPerMin = 0;
+
+            if (pikminCount <= 9) {
+                const effRows = Math.min(rowsPer2s, 1.0);
+                let penalty = 1.0;
+                if (speedKmh > 12.0) penalty = Math.max(0.6, 1.0 - (speedKmh - 12.0) * 0.012);
+                else if (speedKmh <= 4.5) penalty = 0.81;
+                else if (speedKmh <= 8.5) penalty = 0.71;
+                flowersPerMin = 30.0 * effRows * bladeWidth * penalty;
+            } else {
+                flowersPerMin = (60.0 * vMs * bladeWidth / stepLen);
+            }
+
+            const flowersPerPetal = petalsPerMin > 0 ? (flowersPerMin / petalsPerMin) : 0.0;
+            return {
+                status: 'OK',
+                over_speed_limit: false,
+                tier: tierId,
+                pikmin_tier: `${gridH}×${gridW}`,
+                direction: dir,
+                petal_interval_sec: tPetal,
+                petals_per_min: petalsPerMin,
+                petals_per_hr: petalsPerHr,
+                flowers_per_min: Math.round(flowersPerMin),
+                flowers_per_hr: Math.round(flowersPerMin * 60),
+                flowers_per_petal: Number(flowersPerPetal.toFixed(1)),
+                blade_cells: bladeWidth
+            };
+        }
 
         let map = L.map('map', { zoomControl: false }).setView([22.549088, 120.354109], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
@@ -802,11 +1030,13 @@
         let currentRightView = 'routes';
 
         let isPickingRoute = false;
+        let isTeleportMode = false;
         let autoFollow = true;
 
         let loopMode = "none";
         let loopTargetCount = 1;
         let currentPikminTier = 5;
+        let currentPlantingDirection = 'EW';
         let currentSpeedKmh = 15.0;
 
         let isManualModeActive = false;
@@ -815,6 +1045,7 @@
         let isReturningHome = false;
         let isCruising = false;
         let isCruisePaused = false;
+        let returningToLoopOrigin = false;
         let currentWpIndex = 0;
         let serverEtaSeconds = 0;
         let currentPos = null;
@@ -833,8 +1064,19 @@
             setTimeout(() => { t.className = ''; }, 3200);
         }
 
-        function openGuide() { document.getElementById('guide-modal').style.display = 'flex'; }
+        function openGuide(tab = 'recommend') {
+            document.getElementById('guide-modal').style.display = 'flex';
+            switchGuideTab(tab);
+        }
         function closeGuide() { document.getElementById('guide-modal').style.display = 'none'; }
+        function switchGuideTab(tabName) {
+            ['recommend', 'math', 'dev'].forEach(t => {
+                let btn = document.getElementById(`gtab-btn-${t}`);
+                let panel = document.getElementById(`gpanel-${t}`);
+                if (btn) btn.classList.toggle('active', t === tabName);
+                if (panel) panel.style.display = (t === tabName) ? 'flex' : 'none';
+            });
+        }
 
         function formatDuration(totalSeconds) {
             let secs = Math.max(0, Math.round(totalSeconds || 0));
@@ -847,7 +1089,7 @@
             return parts.join(' ');
         }
 
-        // 計算给定航點清單的總距離 (公尺)
+        // 計算给定航點清單的總距離 (公尺)：在循環模式下，每圈結尾皆包含從終點返回原點 (點 1) 的距離
         function calculateRouteDistanceMeters(ptsList, includeStartPos = true) {
             if (!ptsList || ptsList.length === 0) return 0;
             let dist = 0;
@@ -866,29 +1108,38 @@
             if (loopMode !== 'none' && ptsList.length >= 2) {
                 let first = [ptsList[0].lat, ptsList[0].lng];
                 let last = [ptsList[ptsList.length - 1].lat, ptsList[ptsList.length - 1].lng];
-                let singleLap = dist + map.distance(last, first);
-                if (loopMode === 'custom') {
-                    return singleLap * Math.max(1, loopTargetCount);
+                let closeSeg = map.distance(last, first);
+                let pureLap = closeSeg;
+                for (let i = 0; i < ptsList.length - 1; i++) {
+                    pureLap += map.distance([ptsList[i].lat, ptsList[i].lng], [ptsList[i+1].lat, ptsList[i+1].lng]);
                 }
-                return singleLap;
+                if (loopMode === 'custom') {
+                    return (dist + closeSeg) + pureLap * Math.max(0, loopTargetCount - 1);
+                }
+                return dist + closeSeg;
             }
             return dist;
         }
 
-        // 🌸 更新皮克敏種花效率與花瓣消耗試算面板
+        // 🌸 更新皮克敏幾何種花模型與花瓣消耗試算面板
         function updatePikminUI() {
             const tier = PIKMIN_TIERS[currentPikminTier] || PIKMIN_TIERS[5];
-            document.getElementById('pk-tier-name').innerText = `${tier.label} 種花規格`;
-            document.getElementById('pk-efficiency').innerText = `產出率 ${tier.efficiency.toFixed(1)} 朵/片`;
+            const eff = calculatePlantingEfficiency(tier.pikmin_count, currentSpeedKmh, currentPlantingDirection);
+            const dirLabel = currentPlantingDirection === 'EW' ? '東西向' : '南北向';
+
+            document.getElementById('pk-tier-name').innerText = `${tier.label} · ${dirLabel}`;
+            document.getElementById('pk-efficiency').innerText = eff.over_speed_limit
+                ? `超速 0 朵/片`
+                : `利用率 ${eff.flowers_per_petal.toFixed(1)} 朵/片`;
             document.getElementById('pk-period').innerText = `${tier.period_sec} 秒`;
-            document.getElementById('pk-matrix').innerText = `${tier.matrix} (單次 ${tier.flowers_per_tick} 朵)`;
+            document.getElementById('pk-matrix').innerText = `${tier.matrix} (刀鋒${eff.blade_cells}格)`;
             document.getElementById('pk-petal-min').innerText = `${tier.petals_per_min} 片/分`;
             document.getElementById('pk-petal-hr').innerText = `${tier.petals_per_hr.toLocaleString()} 片/時`;
-            document.getElementById('pk-flower-min').innerText = `${tier.flowers_per_min.toLocaleString()} 朵/分`;
-            document.getElementById('pk-flower-hr').innerText = `${tier.flowers_per_hr.toLocaleString()} 朵/時`;
+            document.getElementById('pk-flower-min').innerText = `${eff.flowers_per_min.toLocaleString()} 朵/分`;
+            document.getElementById('pk-flower-hr').innerText = `${eff.flowers_per_hr.toLocaleString()} 朵/時`;
 
-            // 計算行程時間：若巡航中或返航中，優先採用後端精確剩餘秒數；否則依當前規劃航點總距離試算
             let tripSeconds = 0;
+            let singleLapSec = 0;
             if (isCruising || isReturningHome || isCruisePaused) {
                 tripSeconds = serverEtaSeconds;
                 document.getElementById('pk-trip-title').innerText = isCruising ? '📊 剩餘巡航行程消耗預估' : '📊 暫停處剩餘行程預估';
@@ -897,15 +1148,21 @@
                 let spdMps = Math.max(0.1, currentSpeedKmh / 3.6);
                 tripSeconds = Math.ceil(totalMeters / spdMps);
                 document.getElementById('pk-trip-title').innerText = `📊 規劃路線預估 (${waypoints.length} 個航點)`;
+                if (loopMode !== 'none' && waypoints.length >= 2) {
+                    let lapM = map.distance([waypoints[waypoints.length-1].lat, waypoints[waypoints.length-1].lng], [waypoints[0].lat, waypoints[0].lng]);
+                    for (let i = 0; i < waypoints.length - 1; i++) {
+                        lapM += map.distance([waypoints[i].lat, waypoints[i].lng], [waypoints[i+1].lat, waypoints[i+1].lng]);
+                    }
+                    singleLapSec = lapM / spdMps;
+                }
             } else {
                 document.getElementById('pk-trip-title').innerText = '📊 1 小時連續種花基準預估';
                 tripSeconds = 3600;
             }
 
-            let overSpeed = currentSpeedKmh > 20.0;
+            let overSpeed = eff.over_speed_limit;
             let petals = tripSeconds > 0 ? Math.ceil(tripSeconds / tier.period_sec) : 0;
-            let ticks = tripSeconds > 0 ? (Math.floor(tripSeconds / tier.period_sec) + 1) : 0;
-            let flowers = overSpeed ? 0 : (ticks * tier.flowers_per_tick);
+            let flowers = overSpeed ? 0 : Math.round(eff.flowers_per_min * (tripSeconds / 60.0));
 
             document.getElementById('pk-trip-time').innerText = formatDuration(tripSeconds);
             document.getElementById('pk-trip-petals').innerText = `${petals.toLocaleString()} 片`;
@@ -914,10 +1171,52 @@
                 : `${flowers.toLocaleString()} 朵`;
             document.getElementById('pk-overspeed-warn').style.display = overSpeed ? 'block' : 'none';
 
-            // 同步更新路線庫卡片上的花瓣與產花預估
+            const cdWarn = document.getElementById('pk-cooldown-warn');
+            if (cdWarn) {
+                cdWarn.style.display = (!overSpeed && loopMode !== 'none' && singleLapSec > 0 && singleLapSec < T_COOLDOWN_SEC) ? 'block' : 'none';
+            }
+
             if (currentRightView === 'routes') {
                 renderSavedRoutes();
             }
+        }
+
+        // --- ⚡ 獨立瞬移模式控制 (航點模式下自動隱藏瞬移) ---
+        function updateTeleportVisibility() {
+            let tpBox = document.getElementById('teleport-mode-box');
+            if (!tpBox) return;
+            if (isPickingRoute || currentRightView === 'waypoints') {
+                tpBox.style.display = 'none';
+                if (isTeleportMode) setTeleportMode(false);
+            } else {
+                tpBox.style.display = 'block';
+            }
+        }
+
+        function setTeleportMode(enabled) {
+            isTeleportMode = Boolean(enabled);
+            let btn = document.getElementById('btn-teleport-mode');
+            let hint = document.getElementById('teleport-mode-hint');
+            let mapContainer = document.getElementById('map');
+            if (!btn || !hint) return;
+
+            if (isTeleportMode) {
+                if (isPickingRoute) onToggleRoutePickMode(false);
+                btn.classList.add('active');
+                btn.innerText = '⚡ 瞬移模式已啟用 (點擊地圖立即瞬移 / 再按關閉)';
+                hint.style.display = 'block';
+                mapContainer.classList.add('crosshair-cursor');
+                showToast('⚡ 瞬移模式已開啟：直接點擊地圖任意位置即可瞬移！');
+            } else {
+                btn.classList.remove('active');
+                btn.innerText = '⚡ 啟用「點擊地圖直接瞬移」';
+                hint.style.display = 'none';
+                if (!isPickingRoute) mapContainer.classList.remove('crosshair-cursor');
+            }
+        }
+
+        function toggleTeleportMode() {
+            setTeleportMode(!isTeleportMode);
         }
 
         // --- 🎛️ App 風格開關 (iOS Switches) 事件處理 ---
@@ -927,25 +1226,45 @@
         }
 
         function onToggleRoutePickMode(checked) {
-            isPickingRoute = checked;
-            let sw = document.getElementById('sw-pick-route');
-            if (sw && sw.checked !== checked) sw.checked = checked;
+            isPickingRoute = Boolean(checked);
+            if (isPickingRoute && isTeleportMode) {
+                setTeleportMode(false);
+            }
 
             let btn = document.getElementById('btn-route-mode');
+            let btnLib = document.getElementById('btn-route-mode-lib');
             let mapContainer = document.getElementById('map');
             if (isPickingRoute) {
                 if (btn) {
                     btn.classList.add('active');
-                    btn.innerText = '🎯 點擊地圖加點中...';
+                    btn.innerText = '🎯 點擊地圖新增航點中... (再按結束)';
+                }
+                if (btnLib) {
+                    btnLib.classList.add('active');
+                    btnLib.innerText = '🎯 正在點擊地圖新增航點... (再按結束)';
                 }
                 mapContainer.classList.add('crosshair-cursor');
                 showToast("🎯 已開啟地圖選點：直接點擊地圖即可新增航點");
             } else {
                 if (btn) {
                     btn.classList.remove('active');
-                    btn.innerText = '🎯 點擊地圖加點';
+                    btn.innerText = '🎯 點擊地圖新增航點';
                 }
-                mapContainer.classList.remove('crosshair-cursor');
+                if (btnLib) {
+                    btnLib.classList.remove('active');
+                    btnLib.innerText = '🎯 點擊地圖新增航點 (規劃新路線)';
+                }
+                if (!isTeleportMode) mapContainer.classList.remove('crosshair-cursor');
+            }
+            updateTeleportVisibility();
+        }
+
+        function onToggleRoutePickModeFromLibrary() {
+            if (!isPickingRoute) {
+                switchRightTab('waypoints');
+                onToggleRoutePickMode(true);
+            } else {
+                onToggleRoutePickMode(false);
             }
         }
 
@@ -990,26 +1309,67 @@
             });
         }
 
-        // --- 🌸 皮克敏 5 階段與速度選擇聯動 ---
+        // --- 🌸 皮克敏 5 階段、刀鋒方向與速度選擇聯動 ---
         function updateSpeedAndTierButtons() {
             [1, 2, 3, 4, 5].forEach(t => {
                 let btn = document.getElementById(`tier-btn-${t}`);
-                if (btn) {
-                    if (t === currentPikminTier) btn.classList.add('active');
-                    else btn.classList.remove('active');
-                }
+                if (btn) btn.classList.toggle('active', t === currentPikminTier);
             });
+
+            let btnEw = document.getElementById('dir-btn-ew');
+            let btnNs = document.getElementById('dir-btn-ns');
+            if (btnEw) btnEw.classList.toggle('active', currentPlantingDirection === 'EW');
+            if (btnNs) btnNs.classList.toggle('active', currentPlantingDirection === 'NS');
 
             let btn15 = document.getElementById('spd-btn-15');
             let btn800 = document.getElementById('spd-btn-800');
-            if (btn15) {
-                if (Math.abs(currentSpeedKmh - 15) < 0.1) btn15.classList.add('active-15');
-                else btn15.classList.remove('active-15');
+            let btnChampPetal = document.getElementById('spd-btn-champ-petal');
+            let btnChampFlower = document.getElementById('spd-btn-champ-flower');
+
+            if (btn15) btn15.classList.toggle('active-15', Math.abs(currentSpeedKmh - 15) < 0.1);
+            if (btn800) btn800.classList.toggle('active-800', currentSpeedKmh >= 500);
+            if (btnChampPetal) btnChampPetal.classList.toggle('active-champ-petal', currentPikminTier === 4 && Math.abs(currentSpeedKmh - 16.5) < 0.1);
+            if (btnChampFlower) btnChampFlower.classList.toggle('active-champ-flower', currentPikminTier === 5 && Math.abs(currentSpeedKmh - 17.0) < 0.1);
+        }
+
+        async function selectPlantingDirection(dir) {
+            currentPlantingDirection = (dir === 'NS') ? 'NS' : 'EW';
+            updateSpeedAndTierButtons();
+            updatePikminUI();
+            await fetch('/api/set-settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ planting_direction: currentPlantingDirection })
+            });
+            fetchStatus();
+        }
+
+        async function applyChampionPreset(type) {
+            if (type === 'petal') {
+                currentPikminTier = 4;
+                currentPlantingDirection = 'EW';
+                currentSpeedKmh = 16.5;
+                showToast('🏆 已套用「花瓣利用率最佳」：30~39隻 ＠ 16.5 km/h (61.1朵/片)');
+            } else {
+                currentPikminTier = 5;
+                currentPlantingDirection = 'EW';
+                currentSpeedKmh = 17.0;
+                showToast('🚀 已套用「單分鐘產花量最佳」：40隻滿編 ＠ 17.0 km/h (378朵/分)');
             }
-            if (btn800) {
-                if (currentSpeedKmh >= 500) btn800.classList.add('active-800');
-                else btn800.classList.remove('active-800');
-            }
+            document.getElementById('speed-slider').value = currentSpeedKmh;
+            document.getElementById('speed-label').innerText = currentSpeedKmh;
+            updateSpeedAndTierButtons();
+            updatePikminUI();
+            await fetch('/api/set-settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    pikmin_tier: currentPikminTier,
+                    planting_direction: currentPlantingDirection,
+                    speed_kmh: currentSpeedKmh
+                })
+            });
+            fetchStatus();
         }
 
         async function selectPikminTier(tierId, applyRecommendedSpeed = false) {
@@ -1335,7 +1695,7 @@
                 currentPos = { lat: lat, lon: lon };
 
                 if (originMarker) map.removeLayer(originMarker);
-                originMarker = L.marker([lat, lon]).addTo(map).bindPopup("目前真實位置").openPopup();
+                originMarker = L.marker([lat, lon]).addTo(map);
                 map.setView([lat, lon], 16);
 
                 fetch('/api/sync-real-location', {
@@ -1356,7 +1716,7 @@
                     currentPos = { lat: data.init_lat, lon: data.init_lon };
                     
                     if (originMarker) map.removeLayer(originMarker);
-                    originMarker = L.marker([data.init_lat, data.init_lon]).addTo(map).bindPopup("連線起始點").openPopup();
+                    originMarker = L.marker([data.init_lat, data.init_lon]).addTo(map);
                     setTimeout(() => { recenterMap(); }, 120);
                 }
 
@@ -1369,7 +1729,7 @@
                                 originPos = { lat: lat, lon: lon };
                                 currentPos = { lat: lat, lon: lon };
                                 if (originMarker) map.removeLayer(originMarker);
-                                originMarker = L.marker([lat, lon]).addTo(map).bindPopup("目前精確位置").openPopup();
+                                originMarker = L.marker([lat, lon]).addTo(map);
                                 map.setView([lat, lon], 16);
                                 fetch('/api/sync-real-location', {
                                     method: 'POST',
@@ -1385,6 +1745,7 @@
 
                 currentSpeedKmh = data.speed_kmh || 15.0;
                 currentPikminTier = data.pikmin_tier || 5;
+                currentPlantingDirection = (data.planting_direction || 'EW').toUpperCase();
                 document.getElementById('speed-slider').value = Math.min(currentSpeedKmh, 100);
                 document.getElementById('speed-label').innerText = currentSpeedKmh >= 500 ? `${currentSpeedKmh} (快速)` : currentSpeedKmh;
 
@@ -1413,7 +1774,7 @@
             fetchDebugLogs();
         }
 
-        // --- 📂 右側 Segmented Tabs 切換 (預設為 routes 常用路線庫) ---
+        // --- 📂 右側 Segmented Tabs 切換 (預設為 routes 常用路線庫；切換至航點模式時自動隱藏瞬移按鈕) ---
         function switchRightTab(tabName) {
             currentRightView = tabName;
             let tabRoutes = document.getElementById('tab-btn-routes');
@@ -1434,29 +1795,34 @@
                 viewWps.style.display = 'flex';
                 renderWaypointsList();
             }
+            updateTeleportVisibility();
         }
 
         function renderWaypointsList() {
             document.getElementById('wp-count-badge').innerText = waypoints.length;
             let container = document.getElementById('waypoints-list');
             if (waypoints.length === 0) {
-                container.innerHTML = '<div style="color:#888; text-align:center; padding:16px; font-size:11.5px;">尚無設定航點<br><small>可開啟左側「🎯 點擊地圖新增航點」或從路線庫載入</small></div>';
+                container.innerHTML = '<div style="color:#888; text-align:center; padding:16px; font-size:11.5px;">尚無設定航點<br><small>可點擊上方「🎯 點擊地圖新增航點」或從路線庫載入</small></div>';
                 return;
             }
 
             let html = '';
             waypoints.forEach((wp, idx) => {
-                let isTarget = (isCruising || isCruisePaused) && idx === currentWpIndex;
-                let isPassed = (isCruising || isCruisePaused) && idx < currentWpIndex;
+                let activeIdx = returningToLoopOrigin ? 0 : currentWpIndex;
+                let isTarget = (isCruising || isCruisePaused) && idx === activeIdx;
+                let isPassed = (isCruising || isCruisePaused) && !returningToLoopOrigin && idx < currentWpIndex;
                 let rowClass = isTarget ? 'waypoint-item active-wp' : (isPassed ? 'waypoint-item passed-wp' : 'waypoint-item');
+                let originBadge = idx === 0 ? '<span style="background:#dcfce7; color:#166534; padding:1px 5px; border-radius:4px; font-size:10px; font-weight:700;">原點</span> ' : '';
                 let statusTag = isTarget
-                    ? '<span style="color:#007aff; font-weight:700; font-size:10.5px;">🎯 前往中</span>'
+                    ? (returningToLoopOrigin
+                        ? '<span style="color:#059669; font-weight:700; font-size:10.5px;">🏠 循環返回原點中</span>'
+                        : '<span style="color:#007aff; font-weight:700; font-size:10.5px;">🎯 前往中</span>')
                     : (isPassed ? '<span style="color:#16a34a; font-size:10.5px;">✓ 已通過</span>' : '');
 
                 html += `
                 <div class="${rowClass}">
                     <div>
-                        <b>點 ${idx + 1}</b> ${statusTag}<br>
+                        <b>點 ${idx + 1}</b> ${originBadge}${statusTag}<br>
                         <span style="font-family:monospace; color:#555; font-size:11px;">${wp.lat.toFixed(5)}, ${wp.lng.toFixed(5)}</span>
                     </div>
                     <button class="btn btn-tool" style="width:auto; padding:2px 7px; margin:0; color:#ff3b30;" onclick="removeWaypoint(${idx})">❌</button>
@@ -1466,15 +1832,16 @@
         }
 
         function updateWaypointMarkerStyles() {
+            let activeIdx = returningToLoopOrigin ? 0 : currentWpIndex;
             waypoints.forEach((wp, idx) => {
-                let isTarget = (isCruising || isCruisePaused) && idx === currentWpIndex;
+                let isTarget = (isCruising || isCruisePaused) && idx === activeIdx;
                 wp.marker.setStyle({
                     radius: isTarget ? 8 : 6,
-                    color: isTarget ? '#007aff' : '#ff9500',
-                    fillColor: isTarget ? '#007aff' : '#ff9500',
+                    color: isTarget ? '#007aff' : (idx === 0 ? '#10b981' : '#ff9500'),
+                    fillColor: isTarget ? '#007aff' : (idx === 0 ? '#10b981' : '#ff9500'),
                     fillOpacity: 0.9
                 });
-                wp.marker.setTooltipContent(isTarget ? `🎯 點 ${idx + 1}` : `點 ${idx + 1}`);
+                wp.marker.setTooltipContent(isTarget ? `🎯 點 ${idx + 1}${idx === 0 ? ' (原點)' : ''}` : `點 ${idx + 1}${idx === 0 ? ' (原點)' : ''}`);
             });
         }
 
@@ -1527,6 +1894,7 @@
                 if (res.ok) {
                     let data = await res.json();
                     currentWpIndex = data.current_wp_index || 0;
+                    returningToLoopOrigin = Boolean(data.returning_to_loop_origin);
                     serverEtaSeconds = data.eta_seconds || 0;
                     updateWaypointMarkerStyles();
                     renderWaypointsList();
@@ -1629,8 +1997,9 @@
             }
 
             const tier = PIKMIN_TIERS[currentPikminTier] || PIKMIN_TIERS[5];
+            const eff = calculatePlantingEfficiency(tier.pikmin_count, currentSpeedKmh, currentPlantingDirection);
             let spdMps = Math.max(0.1, currentSpeedKmh / 3.6);
-            let overSpeed = currentSpeedKmh > 20.0;
+            let overSpeed = eff.over_speed_limit;
 
             let html = '';
             savedRoutes.forEach(r => {
@@ -1638,8 +2007,7 @@
                 let distStr = distMeters >= 1000 ? `${(distMeters / 1000).toFixed(2)} km` : `${Math.round(distMeters)} m`;
                 let secs = Math.ceil(distMeters / spdMps);
                 let petals = secs > 0 ? Math.ceil(secs / tier.period_sec) : 0;
-                let ticks = secs > 0 ? (Math.floor(secs / tier.period_sec) + 1) : 0;
-                let flowers = overSpeed ? 0 : (ticks * tier.flowers_per_tick);
+                let flowers = overSpeed ? 0 : Math.round(eff.flowers_per_min * (secs / 60.0));
 
                 html += `
                 <div class="route-card">
@@ -1727,8 +2095,12 @@
         }
 
         map.on('click', async e => {
-            if (!isPickingRoute || isStopping) return;
-            await addWaypointAt(e.latlng.lat, e.latlng.lng, true);
+            if (isStopping) return;
+            if (isPickingRoute) {
+                await addWaypointAt(e.latlng.lat, e.latlng.lng, true);
+            } else if (isTeleportMode) {
+                await teleportToLatLng(e.latlng.lat, e.latlng.lng);
+            }
         });
 
         function updatePolyline() {
@@ -1766,6 +2138,7 @@
             }
             isCruising = false;
             isCruisePaused = false;
+            returningToLoopOrigin = false;
             currentWpIndex = 0;
             waypoints.forEach(wp => map.removeLayer(wp.marker));
             waypoints = [];
@@ -1781,22 +2154,23 @@
             let startRow = document.getElementById('cruise-start-row');
             let startBtn = document.getElementById('btn-start-cruise');
             let restartBtn = document.getElementById('btn-restart-cruise');
-            let teleBtn = document.getElementById('btn-teleport');
             let stopBtn = document.getElementById('btn-stop-cruise');
+
+            updateTeleportVisibility();
 
             if (isStopping || isReturningHome) {
                 startRow.style.display = 'none';
-                teleBtn.style.display = 'none';
                 stopBtn.style.display = 'none';
             } else if (isCruising) {
                 startRow.style.display = 'none';
-                teleBtn.style.display = 'none';
                 stopBtn.style.display = 'block';
             } else if (isSimulating && waypoints.length > 0) {
                 startRow.style.display = 'flex';
-                teleBtn.style.display = 'block';
                 stopBtn.style.display = 'none';
-                if (isCruisePaused && currentWpIndex > 0 && currentWpIndex < waypoints.length) {
+                if (isCruisePaused && returningToLoopOrigin) {
+                    startBtn.innerText = '▶️ 繼續巡航 (返回原點 點 1)';
+                    restartBtn.style.display = 'block';
+                } else if (isCruisePaused && currentWpIndex > 0 && currentWpIndex < waypoints.length) {
                     startBtn.innerText = `▶️ 繼續巡航 (接續點 ${currentWpIndex + 1})`;
                     restartBtn.style.display = 'block';
                 } else if (isCruisePaused) {
@@ -1808,7 +2182,6 @@
                 }
             } else {
                 startRow.style.display = 'none';
-                teleBtn.style.display = 'none';
                 stopBtn.style.display = 'none';
             }
         }
@@ -1881,7 +2254,7 @@
 
                     map.setView([data.lat, data.lon], 16);
                     if (originMarker) map.removeLayer(originMarker);
-                    originMarker = L.marker([data.lat, data.lon]).addTo(map).bindPopup("連線起始點").openPopup();
+                    originMarker = L.marker([data.lat, data.lon]).addTo(map);
 
                     setTimeout(refreshDevices, 500);
                     setTimeout(fetchStatus, 500);
@@ -1920,12 +2293,14 @@
                 let prevReturning = isReturningHome;
                 let prevWpIdx = currentWpIndex;
                 let prevCruising = isCruising;
+                let prevLoopOrig = returningToLoopOrigin;
 
                 isSimulating = data.is_simulating;
                 isStopping = data.is_stopping;
                 isReturningHome = data.is_returning_home || data.is_stopping;
                 isCruising = data.is_cruising;
                 isCruisePaused = data.is_cruise_paused;
+                returningToLoopOrigin = Boolean(data.returning_to_loop_origin);
                 currentWpIndex = data.current_wp_index || 0;
                 serverEtaSeconds = data.eta_seconds || 0;
                 connectedUdids = data.connected_udids || [];
@@ -1943,7 +2318,7 @@
                     showToast("🏠 已依設定速度平滑返航並恢復真實定位！");
                 }
 
-                if (prevWpIdx !== currentWpIndex || prevCruising !== isCruising) {
+                if (prevWpIdx !== currentWpIndex || prevCruising !== isCruising || prevLoopOrig !== returningToLoopOrigin) {
                     updateWaypointMarkerStyles();
                     if (currentRightView === 'waypoints') renderWaypointsList();
                 }
@@ -1952,7 +2327,13 @@
                     ? '🏠 依設定速度返航中...'
                     : (isConnecting
                         ? connectStage
-                        : (isSimulating ? (isCruising ? `巡航中 (前往點 ${currentWpIndex + 1})` : (isCruisePaused ? `⏸️ 已暫停 (於點 ${currentWpIndex + 1})` : '模擬鎖定中')) : '未啟動'));
+                        : (isSimulating
+                            ? (isCruising
+                                ? (returningToLoopOrigin ? '🔄 循環返回原點 (點 1)' : `巡航中 (前往點 ${currentWpIndex + 1})`)
+                                : (isCruisePaused
+                                    ? (returningToLoopOrigin ? '⏸️ 已暫停 (返回原點 點 1)' : `⏸️ 已暫停 (於點 ${currentWpIndex + 1})`)
+                                    : '模擬鎖定中'))
+                            : '未啟動'));
                 document.getElementById('sim-status').style.color = (isReturningHome || isConnecting) ? '#ff9500' : (isSimulating ? '#34c759' : '#8e8e93');
                 document.getElementById('connected-count').innerText = connectedUdids.length > 0 ? '已連線 (長連接保持)' : (isConnecting ? '正在配對與掛載服務...' : '未連線');
                 document.getElementById('dist-info').innerText = data.distance_from_origin + ' m';
@@ -1986,7 +2367,7 @@
                         taskTitle.innerText = isCruisePaused ? '⏸️ 巡航已暫停 (可接續行程)' : '⏱️ 巡航即時進度';
                         taskTitle.style.color = isCruisePaused ? '#d97706' : '#007aff';
                         taskDistLabel.innerText = '剩餘總距離:';
-                        remainLabel.innerText = `前往點 ${currentWpIndex + 1} 距離:`;
+                        remainLabel.innerText = returningToLoopOrigin ? '🏠 返回原點 (點 1) 距離:' : `前往點 ${currentWpIndex + 1} 距離:`;
                     }
 
                     let totalDist = data.total_remaining_dist;
@@ -1995,6 +2376,10 @@
                     document.getElementById('calc-actual-speed').innerText = `${(data.actual_speed_kmh || 0).toFixed(1)} km/h (上限 ${data.speed_kmh} km/h)`;
 
                     let loopProgBox = document.getElementById('calc-loop-progress');
+                    let loopOriginTag = document.getElementById('loop-origin-returning-tag');
+                    if (loopOriginTag) {
+                        loopOriginTag.innerText = returningToLoopOrigin ? '(🏠 正在回原點)' : '';
+                    }
                     if (!isReturningHome && data.loop_mode === 'custom') {
                         loopProgBox.style.display = 'block';
                         document.getElementById('loop-current-idx').innerText = data.current_loop_idx;
@@ -2088,13 +2473,14 @@
 
             isCruising = true;
             isCruisePaused = false;
+            returningToLoopOrigin = Boolean(data.returning_to_loop_origin);
             currentWpIndex = data.current_wp_index || 0;
             updateWaypointMarkerStyles();
             if (currentRightView === 'waypoints') renderWaypointsList();
             checkCruiseButtons();
             fetchStatus();
             showToast(data.status === 'cruising_resumed'
-                ? `▶️ 已接續行程 (繼續前往點 ${currentWpIndex + 1})！`
+                ? (returningToLoopOrigin ? '▶️ 已接續行程 (繼續返回原點 點 1)！' : `▶️ 已接續行程 (繼續前往點 ${currentWpIndex + 1})！`)
                 : "🚀 已從點 1 啟動自主巡航！");
         }
 
@@ -2103,11 +2489,14 @@
             let data = await res.json();
             isCruising = false;
             isCruisePaused = data.is_cruise_paused ?? true;
+            returningToLoopOrigin = Boolean(data.returning_to_loop_origin);
             currentWpIndex = data.current_wp_index ?? currentWpIndex;
             updateWaypointMarkerStyles();
             if (currentRightView === 'waypoints') renderWaypointsList();
             checkCruiseButtons();
-            showToast(`⏸️ 巡航已暫停 (保留點 ${currentWpIndex + 1} 進度，點擊繼續即可接續)`);
+            showToast(returningToLoopOrigin
+                ? '⏸️ 巡航已暫停 (保留返回原點進度，點擊繼續即可接續)'
+                : `⏸️ 巡航已暫停 (保留點 ${currentWpIndex + 1} 進度，點擊繼續即可接續)`);
         }
 
         async function handleDynamicStop() {
@@ -2132,6 +2521,7 @@
             isReturningHome = false;
             isCruising = false;
             isCruisePaused = false;
+            returningToLoopOrigin = false;
             connectedUdids = [];
 
             if (returnHomePolyline) { map.removeLayer(returnHomePolyline); returnHomePolyline = null; }
@@ -2141,33 +2531,37 @@
             fetchStatus();
         }
 
-        async function confirmTeleport() {
-            if (waypoints.length === 0 || !isSimulating || isStopping) return;
-            let targetIdx = (currentWpIndex >= 0 && currentWpIndex < waypoints.length) ? currentWpIndex : 0;
-            let target = waypoints[targetIdx];
-            let dist = map.distance([currentPos.lat, currentPos.lon], [target.lat, target.lng]);
-            
+        async function teleportToLatLng(targetLat, targetLng) {
+            if (isStopping) return;
+            if (!isSimulating) {
+                showToast("⚠️ 請先連線 iOS 裝置啟動定位模擬後，即可點擊地圖直接瞬移！", true);
+                return;
+            }
+            if (isCruising) {
+                await stopCruise();
+            }
+            let baseLat = currentPos ? currentPos.lat : targetLat;
+            let baseLon = currentPos ? currentPos.lon : targetLng;
+            let dist = map.distance([baseLat, baseLon], [targetLat, targetLng]);
+
             let res = await fetch('/api/teleport', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ target_lat: target.lat, target_lon: target.lng })
+                body: JSON.stringify({ target_lat: targetLat, target_lon: targetLng })
             });
             let data = await res.json();
 
             if (data.current_lat) {
                 currentPos = { lat: data.current_lat, lon: data.current_lon };
-                if (simMarker) simMarker.setLatLng([data.current_lat, data.current_lon]);
-                if (autoFollow) map.panTo([data.current_lat, data.current_lon], { animate: true });
-
-                if (targetIdx + 1 < waypoints.length) {
-                    currentWpIndex = targetIdx + 1;
+                if (!simMarker) {
+                    simMarker = L.circleMarker([data.current_lat, data.current_lon], {
+                        radius: 8, color: '#007aff', fillColor: '#007aff', fillOpacity: 1
+                    }).addTo(map);
                 } else {
-                    currentWpIndex = 0;
+                    simMarker.setLatLng([data.current_lat, data.current_lon]);
                 }
-                updateWaypointMarkerStyles();
-                renderWaypointsList();
-                checkCruiseButtons();
-                showToast(`🚀 已瞬移至點 ${targetIdx + 1} (位移 ${Math.round(dist)} m)`);
+                if (autoFollow) map.panTo([data.current_lat, data.current_lon], { animate: true });
+                showToast(`⚡ 已直接瞬移至 ${targetLat.toFixed(5)}, ${targetLng.toFixed(5)} (位移 ${Math.round(dist)} m)`);
             }
         }
 

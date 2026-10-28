@@ -100,83 +100,193 @@ CONFIG_DIR = Path.home() / "Library" / "Application Support" / "fake-gps"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
-# 🌸 皮克敏 (Pikmin Bloom) 5 階段種花效率參數表
+# --- 🌸 皮克敏 (Pikmin Bloom) 底層基準常數與 5 階段幾何矩陣定義 ---
+H_CELL_M = 5.0          # 網格南北長度 (公尺)
+W_CELL_M = 4.5          # 網格東西寬度 (公尺)
+T_SAMPLE_SEC = 2.0      # 位置判定採樣週期 (秒)
+T_COOLDOWN_SEC = 300    # 同格重複種植冷卻時間 (5 分鐘 = 300 秒)
+V_MAX_KMH = 18.0        # 遊戲最高安全速限 (超過開始吞判定，>=20 斷崖下跌)
+V_SAFE_KMH = 16.5       # 推薦巡航安全上限 (保留緩衝防 GPS 漂移誤判超速)
+
 PIKMIN_TIERS: Dict[int, Dict[str, Any]] = {
     1: {
         "tier": 1,
+        "pikmin_count": 9,
         "label": "1 ～ 9 隻",
         "short_label": "1~9隻",
-        "period_sec": 30,
-        "matrix": "2×1",
-        "flowers_per_tick": 2,
-        "petals_per_min": 2,
+        "period_sec": 30.0,
+        "petals_per_min": 2.0,
         "petals_per_hr": 120,
-        "flowers_per_min": 4,
-        "flowers_per_hr": 240,
-        "efficiency": 2.0,
-        "recommended_kmh": 4.0,
+        "grid_h": 2,
+        "grid_w": 1,
+        "matrix": "2×1",
+        "blade_ew_m": 10.0,
+        "blade_ns_m": 4.5,
+        "recommended_kmh": 12.0,
+        "sweet_spot_desc": "12 km/h 小隊伍最佳甜蜜點 (~60朵/分, 30朵/片)",
     },
     2: {
         "tier": 2,
+        "pikmin_count": 19,
         "label": "10 ～ 19 隻",
         "short_label": "10~19隻",
-        "period_sec": 20,
-        "matrix": "3×2",
-        "flowers_per_tick": 6,
-        "petals_per_min": 3,
+        "period_sec": 20.0,
+        "petals_per_min": 3.0,
         "petals_per_hr": 180,
-        "flowers_per_min": 18,
-        "flowers_per_hr": 1080,
-        "efficiency": 2.0,
-        "recommended_kmh": 6.0,
+        "grid_h": 3,
+        "grid_w": 2,
+        "matrix": "3×2",
+        "blade_ew_m": 15.0,
+        "blade_ns_m": 9.0,
+        "recommended_kmh": 14.0,
+        "sweet_spot_desc": "14 km/h 最佳甜蜜點 (~155朵/分, 52朵/片)",
     },
     3: {
         "tier": 3,
+        "pikmin_count": 29,
         "label": "20 ～ 29 隻",
         "short_label": "20~29隻",
-        "period_sec": 15,
-        "matrix": "4×3",
-        "flowers_per_tick": 12,
-        "petals_per_min": 4,
+        "period_sec": 15.0,
+        "petals_per_min": 4.0,
         "petals_per_hr": 240,
-        "flowers_per_min": 48,
-        "flowers_per_hr": 2880,
-        "efficiency": 3.0,
-        "recommended_kmh": 8.0,
+        "grid_h": 4,
+        "grid_w": 3,
+        "matrix": "4×3",
+        "blade_ew_m": 20.0,
+        "blade_ns_m": 13.5,
+        "recommended_kmh": 15.0,
+        "sweet_spot_desc": "15 km/h 最佳甜蜜點 (~222朵/分, 55朵/片)",
     },
     4: {
         "tier": 4,
+        "pikmin_count": 39,
         "label": "30 ～ 39 隻",
         "short_label": "30~39隻",
-        "period_sec": 12,
-        "matrix": "5×4",
-        "flowers_per_tick": 20,
-        "petals_per_min": 5,
+        "period_sec": 12.0,
+        "petals_per_min": 5.0,
         "petals_per_hr": 300,
-        "flowers_per_min": 100,
-        "flowers_per_hr": 6000,
-        "efficiency": 4.0,
-        "recommended_kmh": 10.0,
+        "grid_h": 5,
+        "grid_w": 4,
+        "matrix": "5×4",
+        "blade_ew_m": 25.0,
+        "blade_ns_m": 18.0,
+        "recommended_kmh": 16.5,
+        "sweet_spot_desc": "🏆 16.5 km/h 全遊戲「花瓣利用率」冠軍 (~305朵/分, 61朵/片)",
     },
     5: {
         "tier": 5,
-        "label": "40 隻（滿編）",
+        "pikmin_count": 40,
+        "label": "40 隻 (滿編)",
         "short_label": "40隻滿編",
-        "period_sec": 10,
-        "matrix": "6×5",
-        "flowers_per_tick": 30,
-        "petals_per_min": 6,
+        "period_sec": 10.0,
+        "petals_per_min": 6.0,
         "petals_per_hr": 360,
-        "flowers_per_min": 180,
-        "flowers_per_hr": 10800,
-        "efficiency": 5.0,
-        "recommended_kmh": 12.0,
+        "grid_h": 6,
+        "grid_w": 5,
+        "matrix": "6×5",
+        "blade_ew_m": 30.0,
+        "blade_ns_m": 22.5,
+        "recommended_kmh": 17.0,
+        "sweet_spot_desc": "🏆 17.0 km/h 全遊戲「單分鐘總產量」冠軍 (~378朵/分, 63朵/片)",
     },
 }
+
+
+def calculate_planting_efficiency(pikmin_count: int, speed_kmh: float, direction: str = "EW") -> Dict[str, Any]:
+    """
+    基於遊戲底層幾何推土機模型與實測數據計算皮克敏種花效益
+    :param pikmin_count: 皮克敏隊伍數量 (1~40)
+    :param speed_kmh: 巡航時速 (km/h)
+    :param direction: 'EW' (東西向) 或 'NS' (南北向)
+    """
+    # 1. 取得隊伍規格
+    if pikmin_count <= 9:
+        tier_id, t_petal, grid_h, grid_w = 1, 30.0, 2, 1
+    elif pikmin_count <= 19:
+        tier_id, t_petal, grid_h, grid_w = 2, 20.0, 3, 2
+    elif pikmin_count <= 29:
+        tier_id, t_petal, grid_h, grid_w = 3, 15.0, 4, 3
+    elif pikmin_count <= 39:
+        tier_id, t_petal, grid_h, grid_w = 4, 12.0, 5, 4
+    else:
+        tier_id, t_petal, grid_h, grid_w = 5, 10.0, 6, 5
+
+    petals_per_min = 60.0 / t_petal
+    petals_per_hr = int(round(petals_per_min * 60))
+
+    # 2. 超速斷崖處理 (>= 20 km/h)
+    if speed_kmh >= 20.0:
+        return {
+            "status": "OVER_SPEED_DROP",
+            "over_speed_limit": True,
+            "tier": tier_id,
+            "pikmin_tier": f"{grid_h}×{grid_w}",
+            "direction": direction.upper(),
+            "petal_interval_sec": int(t_petal),
+            "petals_per_min": round(petals_per_min, 1),
+            "petals_per_hr": petals_per_hr,
+            "flowers_per_min": 0,
+            "flowers_per_hr": 0,
+            "flowers_per_petal": 0.0,
+            "step_2s_m": round((speed_kmh / 3.6) * T_SAMPLE_SEC, 2),
+            "rows_per_2s": 0.0,
+            "blade_cells": grid_h if direction.upper() == "EW" else grid_w,
+            "recommended_max_safe_speed": 16.5 if pikmin_count >= 20 else 12.0,
+        }
+
+    # 3. 幾何推土機計算
+    v_ms = speed_kmh / 3.6
+    if direction.upper() == "EW":
+        blade_width = grid_h        # 刀鋒寬度為南北高度 (格)
+        step_len = W_CELL_M         # 前進單格長度 (東西寬 4.5m)
+    else:
+        blade_width = grid_w        # 刀鋒寬度為東西寬度 (格)
+        step_len = H_CELL_M         # 前進單格長度 (南北高 5.0m)
+
+    step_2s_m = v_ms * T_SAMPLE_SEC
+    rows_per_2s = step_2s_m / step_len
+
+    # 1~9 隻小隊伍實測修正 (因深度僅 1 格，單次 2s 採樣上限與 >12 km/h 斷鏈衰減)
+    if pikmin_count <= 9:
+        eff_rows = min(rows_per_2s, 1.0)
+        if speed_kmh > 12.0:
+            penalty = max(0.6, 1.0 - (speed_kmh - 12.0) * 0.012)
+        elif speed_kmh <= 4.5:
+            penalty = 0.81
+        elif speed_kmh <= 8.5:
+            penalty = 0.71
+        else:
+            penalty = 1.0
+        flowers_per_min = 30.0 * eff_rows * blade_width * penalty
+    else:
+        penalty = 1.0
+        flowers_per_min = (60.0 * v_ms * blade_width / step_len) * penalty
+
+    flowers_per_petal = flowers_per_min / petals_per_min if petals_per_min > 0 else 0.0
+
+    return {
+        "status": "OK",
+        "over_speed_limit": False,
+        "tier": tier_id,
+        "pikmin_tier": f"{grid_h}×{grid_w}",
+        "direction": direction.upper(),
+        "petal_interval_sec": int(t_petal),
+        "petals_per_min": round(petals_per_min, 1),
+        "petals_per_hr": petals_per_hr,
+        "flowers_per_min": int(round(flowers_per_min)),
+        "flowers_per_hr": int(round(flowers_per_min * 60)),
+        "flowers_per_petal": round(flowers_per_petal, 1),
+        "step_2s_m": round(step_2s_m, 2),
+        "rows_per_2s": round(rows_per_2s, 2),
+        "blade_cells": blade_width,
+        "recommended_max_safe_speed": 16.5 if pikmin_count >= 20 else 12.0,
+    }
+
 
 default_config = {
     "speed_kmh": 15.0,
     "pikmin_tier": 5,
+    "planting_direction": "EW",
     "random_level": 0,
     "loop_mode": "none",
     "loop_count": 1,
@@ -200,6 +310,8 @@ def load_config() -> dict:
                 data = json.load(f)
                 if "pikmin_tier" not in data:
                     data["pikmin_tier"] = 5
+                if "planting_direction" not in data:
+                    data["planting_direction"] = "EW"
                 return data
         except Exception:
             pass
@@ -223,7 +335,6 @@ MAX_DEBUG_LOGS = 100
 
 
 def _infer_error_solution(error_text: str, stage: str = "") -> str:
-    """根據錯誤訊息與發生階段，自動對應具體的排查與配套措施。"""
     lower = f"{error_text} {stage}".lower()
     if any(k in lower for k in ["notpaired", "userdeniedpairing", "pairingerror", "信任", "pair"]):
         return (
@@ -292,7 +403,6 @@ def add_debug_log(
         return entry
 
 
-# --- 系統原生通知輔助 ---
 def send_macos_notification(title: str, subtitle: str, message: str, sound_name: str = "Glass"):
     if not NOTIFY_PORT:
         return
@@ -313,11 +423,6 @@ def send_macos_notification(title: str, subtitle: str, message: str, sound_name:
 
 
 async def _bootstrap_remotepairing_over_usb(lockdown: LockdownClient) -> None:
-    """
-    當手機透過已信任的 USB 連接時，透過 `com.apple.dt.remotepairingdeviced.lockdown` 服務
-    自動完成免確認 (promptless) 的 RemotePairing 配對，在 `~/.pymobiledevice3/remote_<UDID>.plist`
-    寫入包含 `peer_alt_irk` 的無線配對憑證，讓拔線後的 Bonjour 無線隧道能直接配對成功。
-    """
     if Version(lockdown.product_version).major < 17:
         return
     service = await RemotePairingLockdownService.create(lockdown)
@@ -337,7 +442,6 @@ async def _bootstrap_remotepairing_over_usb(lockdown: LockdownClient) -> None:
 
 
 async def _ensure_ddi_mounted(provider, service_ref=None) -> None:
-    """檢查裝置是否已掛載 Developer Disk Image (DDI)，若未掛載則預先下載並自動掛載。"""
     image_type = image_type_for_device(provider)
     async with MobileImageMounterService(lockdown=provider) as mounter:
         if await mounter.is_image_mounted(image_type):
@@ -366,13 +470,6 @@ async def _ensure_ddi_mounted(provider, service_ref=None) -> None:
 
 
 class ResilientRsdTunnel:
-    """
-    全方位有線/無線隧道管理器：
-      Path A: Userspace CoreDeviceTunnelProxy (over usbmux USB / Wi-Fi)
-      Path B: Userspace RemotePairingTunnelService (over Bonjour `_remotepairing._tcp`)
-      Path C: macOS NativeRemotedTunnel (over Apple `remotepairingd`)
-    """
-
     def __init__(self, serial: Optional[str] = None, autopair: bool = True):
         self.serial = serial
         self.autopair = autopair
@@ -791,10 +888,6 @@ def clamp_step_to_speed_limit(
     max_speed_kmh: float,
     dt: float,
 ) -> tuple[float, float, float]:
-    """
-    🎯【嚴格速度上限鎖 (Hard Velocity Clamp)】：
-    確保加入任何真實 GPS 微幅抖動 (Jitter) 後，相鄰兩點間的實際球面距離除以 dt 絕對不會超過設定的 speed_kmh！
-    """
     max_step_meters = max(0.01, (max_speed_kmh / 3.6) * dt)
     actual_dist = calculate_distance(prev_lat, prev_lon, cand_lat, cand_lon)
     safe_limit = max_step_meters * 0.995
@@ -815,9 +908,6 @@ def apply_safe_gps_jitter(
     random_level: int,
     dt: float,
 ) -> tuple[float, float]:
-    """
-    在移動目標點上疊加微幅真實 GPS 訊號漂移，並透過 clamp_step_to_speed_limit 強制鎖定不超速。
-    """
     if random_level <= 0 or max_speed_kmh >= 500.0:
         clat, clon, _ = clamp_step_to_speed_limit(prev_lat, prev_lon, base_lat, base_lon, max_speed_kmh, dt)
         return clat, clon
@@ -867,6 +957,7 @@ state = {
     "is_returning_home": False,
     "speed_kmh": cfg_data.get("speed_kmh", 15.0),
     "pikmin_tier": int(cfg_data.get("pikmin_tier", 5)),
+    "planting_direction": cfg_data.get("planting_direction", "EW"),
     "random_level": cfg_data.get("random_level", 0),
     "loop_mode": cfg_data.get("loop_mode", "none"),
     "loop_count": cfg_data.get("loop_count", 1),
@@ -874,6 +965,7 @@ state = {
     "actual_speed_kmh": 0.0,
     "is_cruising": False,
     "is_cruise_paused": False,
+    "returning_to_loop_origin": False,  # 🎯 循環模式下，每圈通過最後一點後正在返回原點 (點 1)
     "cruise_waypoints": [],
     "original_waypoints": [],
     "current_wp_index": 0,
@@ -987,7 +1079,8 @@ def get_effective_step_meters(dt: float, allow_random_pause: bool = True) -> flo
 
 def update_eta_calculation():
     """
-    根據 current_wp_index 精確計算當前圈剩餘航點距離 + 後續圈數距離，並更新 ETA。
+    🎯 精確計算當前剩餘距離與 ETA：
+    在循環模式 (`loop_mode != 'none'`) 下，每一圈的結束點都是從最後一個航點 `wps[-1]` 回到原點 `wps[0]`！
     """
     with state["lock"]:
         cur_lat = state["current_lat"]
@@ -1009,31 +1102,37 @@ def update_eta_calculation():
             state["eta_seconds"] = 0
             return
 
-        # 當前目標點距離
-        target_wp = wps[idx]
-        dist_to_target = calculate_distance(cur_lat, cur_lon, target_wp["lat"], target_wp["lng"])
-        state["target_remaining_dist"] = round(dist_to_target, 1)
-
-        # 本圈剩餘距離 (從 current_pos -> wps[idx] -> ... -> wps[-1])
-        rem_this_lap = dist_to_target
-        prev_lat, prev_lon = target_wp["lat"], target_wp["lng"]
-        for wp in wps[idx + 1:]:
-            rem_this_lap += calculate_distance(prev_lat, prev_lon, wp["lat"], wp["lng"])
-            prev_lat, prev_lon = wp["lat"], wp["lng"]
-
         mode = state["loop_mode"]
-        # 計算單一完整循環圈距離 (wps[-1] -> wps[0] -> ... -> wps[-1])
-        full_lap_dist = 0.0
-        if len(wps) >= 2:
-            full_lap_dist += calculate_distance(wps[-1]["lat"], wps[-1]["lng"], wps[0]["lat"], wps[0]["lng"])
-            for i in range(len(wps) - 1):
-                full_lap_dist += calculate_distance(wps[i]["lat"], wps[i]["lng"], wps[i + 1]["lat"], wps[i + 1]["lng"])
+        closing_dist = (
+            calculate_distance(wps[-1]["lat"], wps[-1]["lng"], wps[0]["lat"], wps[0]["lng"])
+            if (mode != "none" and len(wps) >= 2)
+            else 0.0
+        )
+
+        # 若目前正在走當前圈最後一段「從終點返回原點 (點 1)」
+        if state["returning_to_loop_origin"] and mode != "none" and len(wps) >= 2:
+            dist_to_origin = calculate_distance(cur_lat, cur_lon, wps[0]["lat"], wps[0]["lng"])
+            state["target_remaining_dist"] = round(dist_to_origin, 1)
+            rem_this_lap = dist_to_origin
+        else:
+            target_wp = wps[idx]
+            dist_to_target = calculate_distance(cur_lat, cur_lon, target_wp["lat"], target_wp["lng"])
+            state["target_remaining_dist"] = round(dist_to_target, 1)
+
+            rem_this_lap = dist_to_target
+            prev_lat, prev_lon = target_wp["lat"], target_wp["lng"]
+            for wp in wps[idx + 1:]:
+                rem_this_lap += calculate_distance(prev_lat, prev_lon, wp["lat"], wp["lng"])
+                prev_lat, prev_lon = wp["lat"], wp["lng"]
+            rem_this_lap += closing_dist
+
+        # 單一完整閉環圈距離 (點 1 -> 點 2 -> ... -> 點 N -> 回到點 1)
+        full_lap_dist = closing_dist
+        for i in range(len(wps) - 1):
+            full_lap_dist += calculate_distance(wps[i]["lat"], wps[i]["lng"], wps[i + 1]["lat"], wps[i + 1]["lng"])
 
         total_dist = rem_this_lap
-        if mode == "infinite" and len(wps) >= 2:
-            # 無限循環下顯示當前圈包含閉環回點 1 的距離
-            total_dist = rem_this_lap + calculate_distance(wps[-1]["lat"], wps[-1]["lng"], wps[0]["lat"], wps[0]["lng"])
-        elif mode == "custom":
+        if mode == "custom":
             rem_extra_laps = max(0, state["target_loop_count"] - state["current_loop_idx"])
             total_dist = rem_this_lap + (rem_extra_laps * full_lap_dist)
 
@@ -1041,27 +1140,24 @@ def update_eta_calculation():
         state["eta_seconds"] = int(math.ceil(total_dist / spd_mps)) if spd_mps > 0 else 0
 
 
-def compute_pikmin_stats(eta_seconds: int, speed_kmh: float, tier_id: int) -> Dict[str, Any]:
-    """計算指定時間與速度下的皮克敏花瓣消耗與種花產出統計。"""
+def compute_pikmin_stats(eta_seconds: int, speed_kmh: float, tier_id: int, direction: str = "EW") -> Dict[str, Any]:
+    """結合幾何推土機模型 `calculate_planting_efficiency` 與當前行程時間計算總消耗花瓣與總產花數。"""
     tier = PIKMIN_TIERS.get(tier_id, PIKMIN_TIERS[5])
+    eff_data = calculate_planting_efficiency(tier["pikmin_count"], speed_kmh, direction=direction)
     period_sec = tier["period_sec"]
-    over_speed_limit = speed_kmh > 20.0  # 皮克敏超過約 20 km/h 觸發高速限制無法種花
 
     if eta_seconds <= 0:
-        ticks = 0
         petals_used = 0
         flowers_planted = 0
     else:
-        ticks = int(math.floor(eta_seconds / period_sec)) + 1
         petals_used = int(math.ceil(eta_seconds / period_sec))
-        flowers_planted = 0 if over_speed_limit else (ticks * tier["flowers_per_tick"])
+        flowers_planted = 0 if eff_data["over_speed_limit"] else int(round(eff_data["flowers_per_min"] * (eta_seconds / 60.0)))
 
     return {
         **tier,
-        "over_speed_limit": over_speed_limit,
+        **eff_data,
         "trip_petals": petals_used,
         "trip_flowers": flowers_planted,
-        "trip_ticks": ticks,
     }
 
 
@@ -1117,6 +1213,7 @@ def backend_cruise_worker():
                     state["is_stopping"] = False
                     state["is_returning_home"] = False
                     state["is_cruise_paused"] = False
+                    state["returning_to_loop_origin"] = False
                     send_macos_notification("SIM-GPS", "已恢復真實定位", "iPhone 已依設定速度平滑返航並還原真實定位。", "Ping")
                 else:
                     ratio = step_meters / dist
@@ -1134,7 +1231,7 @@ def backend_cruise_worker():
                     gps_service.set_location(next_lat, next_lon)
                     update_eta_calculation()
 
-            # 🎯 模式 B：沿航點路徑自主巡航 (使用 current_wp_index 追蹤進度，支援隨時暫停續行與中途動態新增航點)
+            # 🎯 模式 B：沿航點路徑自主巡航 (循環任務每圈結束點必定走回原點 wps[0])
             elif state["is_cruising"]:
                 with state["lock"]:
                     wps = state["cruise_waypoints"]
@@ -1142,12 +1239,14 @@ def backend_cruise_worker():
                     if not wps or idx >= len(wps):
                         state["is_cruising"] = False
                         state["is_cruise_paused"] = False
+                        state["returning_to_loop_origin"] = False
                         state["current_wp_index"] = 0
                         state["actual_speed_kmh"] = 0.0
                         send_macos_notification("SIM-GPS", "巡航完成", "所有航點已到達完畢！", "Glass")
                         time.sleep(TICK_SEC)
                         continue
-                    target = wps[idx]
+                    # 若正處於循環圈閉環回原點階段，目標為 wps[0] (原點)
+                    target = wps[0] if state["returning_to_loop_origin"] else wps[idx]
 
                 cur_lat = state["current_lat"]
                 cur_lon = state["current_lon"]
@@ -1182,32 +1281,52 @@ def backend_cruise_worker():
                     if arrived:
                         with state["lock"]:
                             mode = state["loop_mode"]
-                            next_idx = state["current_wp_index"] + 1
                             total_wps = len(state["cruise_waypoints"])
 
-                            if next_idx < total_wps:
-                                state["current_wp_index"] = next_idx
-                            else:
-                                # 已到達最後一個航點
+                            if state["returning_to_loop_origin"]:
+                                # 🎯 已走完閉環最後一段回到原點 (點 1)，正式完成這一圈！
+                                state["returning_to_loop_origin"] = False
                                 if mode == "infinite":
-                                    state["current_wp_index"] = 0
                                     state["current_loop_idx"] += 1
+                                    # 已經站在點 1 (index 0) 上，下一圈直接前往點 2 (index 1)
+                                    state["current_wp_index"] = 1 if total_wps >= 2 else 0
                                 elif mode == "custom":
                                     if state["current_loop_idx"] < state["target_loop_count"]:
                                         state["current_loop_idx"] += 1
+                                        state["current_wp_index"] = 1 if total_wps >= 2 else 0
+                                    else:
+                                        # 所有指定圈數均已完成，且停留在原點 (點 1)！
+                                        state["is_cruising"] = False
+                                        state["is_cruise_paused"] = False
+                                        state["current_wp_index"] = 0
+                                        state["actual_speed_kmh"] = 0.0
+                                        send_macos_notification(
+                                            "SIM-GPS",
+                                            "循環巡航完成",
+                                            f"已完成指定的 {state['target_loop_count']} 圈循環並返回原點！",
+                                            "Glass",
+                                        )
+                                else:
+                                    state["is_cruising"] = False
+                                    state["is_cruise_paused"] = False
+                                    state["current_wp_index"] = 0
+                                    state["actual_speed_kmh"] = 0.0
+                            else:
+                                next_idx = state["current_wp_index"] + 1
+                                if next_idx < total_wps:
+                                    state["current_wp_index"] = next_idx
+                                else:
+                                    # 已抵達最後一個航點 (點 N)
+                                    if mode in ("infinite", "custom") and total_wps >= 2:
+                                        # 🎯 循環模式下，抵達最後一點後必須走回原點 (點 1) 才算完成該圈！
+                                        state["returning_to_loop_origin"] = True
                                         state["current_wp_index"] = 0
                                     else:
                                         state["is_cruising"] = False
                                         state["is_cruise_paused"] = False
                                         state["current_wp_index"] = 0
                                         state["actual_speed_kmh"] = 0.0
-                                        send_macos_notification("SIM-GPS", "巡航完成", f"已完成指定的 {state['target_loop_count']} 圈巡航！", "Glass")
-                                else:
-                                    state["is_cruising"] = False
-                                    state["is_cruise_paused"] = False
-                                    state["current_wp_index"] = 0
-                                    state["actual_speed_kmh"] = 0.0
-                                    send_macos_notification("SIM-GPS", "巡航完成", "單次巡航任務已結束！", "Glass")
+                                        send_macos_notification("SIM-GPS", "巡航完成", "單次巡航任務已結束！", "Glass")
                 else:
                     state["actual_speed_kmh"] = 0.0
 
@@ -1305,6 +1424,7 @@ class SyncWaypointsRequest(BaseModel):
 class SettingsRequest(BaseModel):
     speed_kmh: Optional[float] = None
     pikmin_tier: Optional[int] = None
+    planting_direction: Optional[str] = None
     random_level: Optional[int] = None
     loop_mode: Optional[str] = None
     loop_count: Optional[int] = None
@@ -1353,6 +1473,7 @@ async def get_init_data():
         "init_lon": state["real_lon"],
         "speed_kmh": state["speed_kmh"],
         "pikmin_tier": state["pikmin_tier"],
+        "planting_direction": state["planting_direction"],
         "pikmin_tiers": PIKMIN_TIERS,
         "random_level": state["random_level"],
         "loop_mode": state["loop_mode"],
@@ -1382,7 +1503,12 @@ async def get_status():
         err_count = len(debug_logs)
         latest_err_id = debug_logs[0]["id"] if debug_logs else 0
 
-    pikmin_stats = compute_pikmin_stats(state["eta_seconds"], state["speed_kmh"], state["pikmin_tier"])
+    pikmin_stats = compute_pikmin_stats(
+        state["eta_seconds"],
+        state["speed_kmh"],
+        state["pikmin_tier"],
+        direction=state["planting_direction"],
+    )
 
     return {
         "is_simulating": is_sim,
@@ -1398,6 +1524,7 @@ async def get_status():
         "current_lon": state["current_lon"],
         "speed_kmh": state["speed_kmh"],
         "pikmin_tier": state["pikmin_tier"],
+        "planting_direction": state["planting_direction"],
         "pikmin_stats": pikmin_stats,
         "actual_speed_kmh": state["actual_speed_kmh"],
         "random_level": state["random_level"],
@@ -1407,6 +1534,7 @@ async def get_status():
         "distance_from_origin": round(dist, 1),
         "is_cruising": state["is_cruising"],
         "is_cruise_paused": state["is_cruise_paused"],
+        "returning_to_loop_origin": state["returning_to_loop_origin"],
         "cruise_waypoints": state["cruise_waypoints"],
         "current_wp_index": state["current_wp_index"],
         "current_loop_idx": state["current_loop_idx"],
@@ -1474,7 +1602,7 @@ async def geocode_search(q: str):
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "SIM-GPS-macOS-Client/1.4",
+                "User-Agent": "SIM-GPS-macOS-Client/1.5",
                 "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
             },
         )
@@ -1534,6 +1662,7 @@ async def connect_single_device(req: DeviceActionRequest):
 async def disconnect_single_device(req: DeviceActionRequest):
     state["is_cruising"] = False
     state["is_cruise_paused"] = False
+    state["returning_to_loop_origin"] = False
     state["is_stopping"] = False
     state["is_returning_home"] = False
     gps_service.stop()
@@ -1555,7 +1684,7 @@ async def start_backend_cruise(req: StartCruiseRequest):
             bool(req.resume)
             and not bool(req.reset)
             and (state["is_cruise_paused"] or state["is_cruising"])
-            and 0 <= state["current_wp_index"] < len(new_wps)
+            and (0 <= state["current_wp_index"] < len(new_wps) or state["returning_to_loop_origin"])
         )
         state["cruise_waypoints"] = new_wps
         state["original_waypoints"] = [dict(w) for w in new_wps]
@@ -1564,6 +1693,7 @@ async def start_backend_cruise(req: StartCruiseRequest):
         if not should_resume:
             state["current_wp_index"] = 0
             state["current_loop_idx"] = 1
+            state["returning_to_loop_origin"] = False
         state["is_cruising"] = True
         state["is_cruise_paused"] = False
 
@@ -1572,6 +1702,7 @@ async def start_backend_cruise(req: StartCruiseRequest):
         "status": "cruising_resumed" if should_resume else "cruising_started",
         "current_wp_index": state["current_wp_index"],
         "current_loop_idx": state["current_loop_idx"],
+        "returning_to_loop_origin": state["returning_to_loop_origin"],
     }
 
 
@@ -1579,8 +1710,9 @@ async def start_backend_cruise(req: StartCruiseRequest):
 async def stop_backend_cruise():
     with state["lock"]:
         state["is_cruising"] = False
-        # 保留暫停狀態與 current_wp_index，讓使用者再次點擊開始時能無縫接續當前行程
-        if state["cruise_waypoints"] and state["current_wp_index"] < len(state["cruise_waypoints"]):
+        if state["cruise_waypoints"] and (
+            state["current_wp_index"] < len(state["cruise_waypoints"]) or state["returning_to_loop_origin"]
+        ):
             state["is_cruise_paused"] = True
         state["anchor_lat"] = state["current_lat"]
         state["anchor_lon"] = state["current_lon"]
@@ -1588,25 +1720,28 @@ async def stop_backend_cruise():
         "status": "cruising_paused",
         "current_wp_index": state["current_wp_index"],
         "is_cruise_paused": state["is_cruise_paused"],
+        "returning_to_loop_origin": state["returning_to_loop_origin"],
     }
 
 
 @app.post("/api/cruise/sync-waypoints")
 async def sync_cruise_waypoints(req: SyncWaypointsRequest):
-    """
-    🎯【行程中動態新增/刪除航點同步】：
-    當使用者在巡航中或暫停中於地圖新增航點或刪除航點時，即時更新後端航點清單並校正 current_wp_index，
-    讓行程無縫延續至新加入的航點！
-    """
     with state["lock"]:
         new_wps = [{"lat": float(w["lat"]), "lng": float(w["lng"])} for w in req.waypoints]
         if not new_wps:
             state["cruise_waypoints"] = []
             state["original_waypoints"] = []
             state["current_wp_index"] = 0
+            state["returning_to_loop_origin"] = False
             state["is_cruising"] = False
             state["is_cruise_paused"] = False
         else:
+            prev_len = len(state["cruise_waypoints"])
+            # 若原本正在走閉環回原點階段，但使用者又新增了新的航點，則改為繼續前往新加入的航點！
+            if state["returning_to_loop_origin"] and len(new_wps) > prev_len and req.removed_index is None:
+                state["returning_to_loop_origin"] = False
+                state["current_wp_index"] = prev_len
+
             if req.removed_index is not None and req.removed_index < state["current_wp_index"]:
                 state["current_wp_index"] = max(0, state["current_wp_index"] - 1)
             if state["current_wp_index"] >= len(new_wps):
@@ -1618,6 +1753,7 @@ async def sync_cruise_waypoints(req: SyncWaypointsRequest):
     return {
         "status": "synced",
         "current_wp_index": state["current_wp_index"],
+        "returning_to_loop_origin": state["returning_to_loop_origin"],
         "total_waypoints": len(state["cruise_waypoints"]),
         "eta_seconds": state["eta_seconds"],
     }
@@ -1700,6 +1836,9 @@ async def update_settings(req: SettingsRequest):
         if req.pikmin_tier is not None and req.pikmin_tier in PIKMIN_TIERS:
             state["pikmin_tier"] = req.pikmin_tier
             cfg["pikmin_tier"] = state["pikmin_tier"]
+        if req.planting_direction is not None and req.planting_direction.upper() in ("EW", "NS"):
+            state["planting_direction"] = req.planting_direction.upper()
+            cfg["planting_direction"] = state["planting_direction"]
         if req.speed_kmh is not None:
             state["speed_kmh"] = max(1.0, min(req.speed_kmh, 1000.0))
             cfg["speed_kmh"] = state["speed_kmh"]
@@ -1709,6 +1848,8 @@ async def update_settings(req: SettingsRequest):
         if req.loop_mode is not None:
             state["loop_mode"] = req.loop_mode
             cfg["loop_mode"] = state["loop_mode"]
+            if req.loop_mode == "none":
+                state["returning_to_loop_origin"] = False
         if req.loop_count is not None:
             state["loop_count"] = max(1, req.loop_count)
             cfg["loop_count"] = state["loop_count"]
@@ -1720,7 +1861,13 @@ async def update_settings(req: SettingsRequest):
         "status": "ok",
         "speed_kmh": state["speed_kmh"],
         "pikmin_tier": state["pikmin_tier"],
-        "pikmin_stats": compute_pikmin_stats(state["eta_seconds"], state["speed_kmh"], state["pikmin_tier"]),
+        "planting_direction": state["planting_direction"],
+        "pikmin_stats": compute_pikmin_stats(
+            state["eta_seconds"],
+            state["speed_kmh"],
+            state["pikmin_tier"],
+            direction=state["planting_direction"],
+        ),
         "random_level": state["random_level"],
         "loop_mode": state["loop_mode"],
         "loop_count": state["loop_count"],
@@ -1756,11 +1903,13 @@ async def stop_simulation_smooth():
         state["is_stopping"] = False
         state["is_returning_home"] = False
         state["is_cruise_paused"] = False
+        state["returning_to_loop_origin"] = False
         return {"status": "not_running"}
 
     with state["lock"]:
         state["is_cruising"] = False
         state["is_cruise_paused"] = False
+        state["returning_to_loop_origin"] = False
         start_lat = state["current_lat"]
         start_lon = state["current_lon"]
         target_lat = state["real_lat"]
@@ -1797,6 +1946,7 @@ async def stop_simulation_force():
     with state["lock"]:
         state["is_cruising"] = False
         state["is_cruise_paused"] = False
+        state["returning_to_loop_origin"] = False
         state["is_stopping"] = False
         state["is_returning_home"] = False
         state["actual_speed_kmh"] = 0.0
