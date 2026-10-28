@@ -100,8 +100,83 @@ CONFIG_DIR = Path.home() / "Library" / "Application Support" / "fake-gps"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
+# 🌸 皮克敏 (Pikmin Bloom) 5 階段種花效率參數表
+PIKMIN_TIERS: Dict[int, Dict[str, Any]] = {
+    1: {
+        "tier": 1,
+        "label": "1 ～ 9 隻",
+        "short_label": "1~9隻",
+        "period_sec": 30,
+        "matrix": "2×1",
+        "flowers_per_tick": 2,
+        "petals_per_min": 2,
+        "petals_per_hr": 120,
+        "flowers_per_min": 4,
+        "flowers_per_hr": 240,
+        "efficiency": 2.0,
+        "recommended_kmh": 4.0,
+    },
+    2: {
+        "tier": 2,
+        "label": "10 ～ 19 隻",
+        "short_label": "10~19隻",
+        "period_sec": 20,
+        "matrix": "3×2",
+        "flowers_per_tick": 6,
+        "petals_per_min": 3,
+        "petals_per_hr": 180,
+        "flowers_per_min": 18,
+        "flowers_per_hr": 1080,
+        "efficiency": 2.0,
+        "recommended_kmh": 6.0,
+    },
+    3: {
+        "tier": 3,
+        "label": "20 ～ 29 隻",
+        "short_label": "20~29隻",
+        "period_sec": 15,
+        "matrix": "4×3",
+        "flowers_per_tick": 12,
+        "petals_per_min": 4,
+        "petals_per_hr": 240,
+        "flowers_per_min": 48,
+        "flowers_per_hr": 2880,
+        "efficiency": 3.0,
+        "recommended_kmh": 8.0,
+    },
+    4: {
+        "tier": 4,
+        "label": "30 ～ 39 隻",
+        "short_label": "30~39隻",
+        "period_sec": 12,
+        "matrix": "5×4",
+        "flowers_per_tick": 20,
+        "petals_per_min": 5,
+        "petals_per_hr": 300,
+        "flowers_per_min": 100,
+        "flowers_per_hr": 6000,
+        "efficiency": 4.0,
+        "recommended_kmh": 10.0,
+    },
+    5: {
+        "tier": 5,
+        "label": "40 隻（滿編）",
+        "short_label": "40隻滿編",
+        "period_sec": 10,
+        "matrix": "6×5",
+        "flowers_per_tick": 30,
+        "petals_per_min": 6,
+        "petals_per_hr": 360,
+        "flowers_per_min": 180,
+        "flowers_per_hr": 10800,
+        "efficiency": 5.0,
+        "recommended_kmh": 12.0,
+    },
+}
+
 default_config = {
-    "speed_kmh": 18.0,
+    "speed_kmh": 15.0,
+    "pikmin_tier": 5,
     "random_level": 0,
     "loop_mode": "none",
     "loop_count": 1,
@@ -122,7 +197,10 @@ def load_config() -> dict:
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if "pikmin_tier" not in data:
+                    data["pikmin_tier"] = 5
+                return data
         except Exception:
             pass
     save_config(default_config)
@@ -236,10 +314,9 @@ def send_macos_notification(title: str, subtitle: str, message: str, sound_name:
 
 async def _bootstrap_remotepairing_over_usb(lockdown: LockdownClient) -> None:
     """
-    🎯【關鍵無線修復】：
     當手機透過已信任的 USB 連接時，透過 `com.apple.dt.remotepairingdeviced.lockdown` 服務
     自動完成免確認 (promptless) 的 RemotePairing 配對，在 `~/.pymobiledevice3/remote_<UDID>.plist`
-    寫入包含 `peer_alt_irk` 的無線配對憑證，讓拔線後的 Bonjour 無線隧道能直接配對成功！
+    寫入包含 `peer_alt_irk` 的無線配對憑證，讓拔線後的 Bonjour 無線隧道能直接配對成功。
     """
     if Version(lockdown.product_version).major < 17:
         return
@@ -271,7 +348,6 @@ async def _ensure_ddi_mounted(provider, service_ref=None) -> None:
     if service_ref is not None:
         service_ref.connect_stage = "正在從雲端下載 Apple 開發者映像檔 (首次約需 10~20 秒)..."
 
-    # 將同步下載 DDI 的步驟放到背景執行緒，避免阻塞 Userspace PyTCP 事件迴圈
     if uses_personalized_image(provider):
         if Version(provider.product_version) >= CRYPTEX_IMAGE_MIN_VERSION:
             from pymobiledevice3.services.cryptexd import fetch_cryptex_ddi
@@ -291,11 +367,7 @@ async def _ensure_ddi_mounted(provider, service_ref=None) -> None:
 
 class ResilientRsdTunnel:
     """
-    🎯【全方位有線/無線隧道管理器】：
-    彌補 pymobiledevice3 內建 `_create_no_root_tunnel_provider` 與 `PreferredRsdTunnel` 在純 Wi-Fi 時：
-    1. 當 usbmuxd 未列出裝置或 CoreDeviceProxy 拋出 StartServiceError 時不會退避至 Bonjour RemotePairing 的問題。
-    2. 當 Userspace 拋出非 UserspaceTunnelUnavailableError 時不會退避至 macOS NativeRemotedTunnel 的問題。
-    依序嘗試：
+    全方位有線/無線隧道管理器：
       Path A: Userspace CoreDeviceTunnelProxy (over usbmux USB / Wi-Fi)
       Path B: Userspace RemotePairingTunnelService (over Bonjour `_remotepairing._tcp`)
       Path C: macOS NativeRemotedTunnel (over Apple `remotepairingd`)
@@ -306,7 +378,6 @@ class ResilientRsdTunnel:
         self.autopair = autopair
         self._stack: Optional[AsyncExitStack] = None
         self._native_tunnel = None
-        self._transport_watcher: Optional[asyncio.Task[None]] = None
         self.rsd: Optional[RemoteServiceDiscoveryService] = None
 
     async def _pick_userspace_provider(self):
@@ -334,7 +405,6 @@ class ResilientRsdTunnel:
             raise UserspaceTunnelUnavailableError(
                 "無法透過 CoreDeviceProxy 或 Bonjour RemotePairing 建立 Userspace 隧道"
             )
-        # 關閉未選中的多餘 service
         for extra in services[1:]:
             with suppress(Exception):
                 await extra.close()
@@ -344,7 +414,6 @@ class ResilientRsdTunnel:
         import pymobiledevice3.remote.userspace_tunnel as ut_mod
 
         async with _lifecycle_lock():
-            # 若先前的隧道因意外未清除，先安全釋放
             if ut_mod._active_tunnel is not None:
                 with suppress(Exception):
                     await ut_mod._active_tunnel.aclose()
@@ -379,7 +448,6 @@ class ResilientRsdTunnel:
                     raise
                 print(f"ℹ️ [Tunnel] Userspace 隧道未就緒 ({type(userspace_err).__name__}: {userspace_err})，嘗試 macOS 原生 remotepairingd 通道...")
 
-        # Fallback Path C: macOS NativeRemotedTunnel (remotepairingd)
         from pymobiledevice3.remote.native_tunnel import NativeRemotedTunnel
 
         native = NativeRemotedTunnel(serial=self.serial)
@@ -454,7 +522,6 @@ class IOSUserspaceGpsService:
         while True:
             action, payload = await self.cmd_queue.get()
             if action == "START":
-                # 清理佇列中殘留的過期 SET 指令，但若使用者已按下 STOP 則取消啟動
                 abort_start = False
                 while not self.cmd_queue.empty():
                     try:
@@ -505,7 +572,6 @@ class IOSUserspaceGpsService:
             except Exception as e:
                 print(f"清理異常: {e}")
         finally:
-            # 離開定位迴圈時立即標記未連線，防止背景巡航執行緒在斷線重連等待期間繼續塞入 SET 座標
             self.is_connected = False
             self.is_running = False
             self.sim = None
@@ -520,7 +586,6 @@ class IOSUserspaceGpsService:
         was_connected_once = False
 
         try:
-            # Step 1: 嘗試透過 usbmux 連線 Lockdown (檢查信任配對、開發者模式、啟用 Wi-Fi 與 RemotePairing 憑證，並高速掛載 DDI)
             print(f"⏳ [1/4] 正在檢查裝置配對與狀態 (UDID: {target_serial or '自動偵測'})...")
             try:
                 async with await create_using_usbmux(serial=target_serial, autopair=True) as lockdown:
@@ -530,7 +595,6 @@ class IOSUserspaceGpsService:
                     ios_major = ios_version.major
                     print(f"✅ [1/4] 已連線 Lockdown: {lockdown.display_name or lockdown.product_type} (iOS {lockdown.product_version})")
 
-                    # 檢查開發者模式 (iOS 16+)
                     if lockdown.has_developer_mode and not await lockdown.get_developer_mode_status():
                         self.last_error = (
                             "偵測到 iPhone 尚未開啟「開發者模式」！\n"
@@ -545,7 +609,6 @@ class IOSUserspaceGpsService:
                         print(f"❌ [Userspace] {self.last_error}")
                         return
 
-                    # 若目前透過 USB 有線連接，自動為該手機啟用 Wi-Fi 無線探索 + 建立免確認 RemotePairing 無線憑證
                     if lockdown.service.mux_device and lockdown.service.mux_device.is_usb:
                         try:
                             await lockdown.set_enable_wifi_connections(True)
@@ -555,7 +618,6 @@ class IOSUserspaceGpsService:
 
                         await _bootstrap_remotepairing_over_usb(lockdown)
 
-                    # 嘗試直接在原生 usbmux 通道上檢查並高速掛載 DDI (比在 Userspace PyTCP 隧道內上傳快數倍)
                     try:
                         await _ensure_ddi_mounted(lockdown, service_ref=self)
                         ddi_mounted_over_usbmux = True
@@ -572,7 +634,6 @@ class IOSUserspaceGpsService:
                         )
                         raise
 
-                    # 若為 iOS 16 及更舊版本，無需建立 RSD 隧道，直接透過 Lockdown 啟動 DvtProvider
                     if ios_major < 17:
                         self.connect_stage = "正在啟動定位模擬服務..."
                         print("⏳ [iOS < 17] 正在直接透過 Lockdown 掛載 DvtProvider 與 LocationSimulation...")
@@ -584,7 +645,6 @@ class IOSUserspaceGpsService:
             except (NoDeviceConnectedError, MuxException) as mux_err:
                 print(f"ℹ️ [usbmux] 未透過 usbmux 直接連線 ({mux_err})，嘗試使用無線 RSD 遠端配對通道...")
 
-            # Step 2: iOS 17+ 建立免 root 的全方位 RSD 隧道 (ResilientRsdTunnel)
             self.connect_stage = "正在建立 RSD 安全隧道..."
             print(f"⏳ [2/4] 正在與裝置 ({target_serial or '自動'}) 建立 RSD 隧道...")
             async with ResilientRsdTunnel(serial=target_serial, autopair=True) as rsd:
@@ -592,11 +652,9 @@ class IOSUserspaceGpsService:
                     self.current_udid = rsd.udid
                 print(f"✅ [2/4] RSD 隧道建立成功！裝置: {rsd.product_type} (iOS {rsd.product_version})")
 
-                # Step 3: 若方才尚未透過 usbmux 掛載 DDI (如 iOS 27+ 或純 Bonjour 無線連線)，在 RSD 隧道上確保 DDI 已掛載
                 if not ddi_mounted_over_usbmux:
                     await _ensure_ddi_mounted(rsd, service_ref=self)
 
-                # Step 4: 掛載 DvtProvider 與 LocationSimulation
                 self.connect_stage = "正在啟動定位模擬服務..."
                 print("⏳ [4/4] 正在掛載 DvtProvider 與 LocationSimulation...")
                 async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as sim:
@@ -662,7 +720,6 @@ class IOSUserspaceGpsService:
             )
             print(f"❌ [Userspace] DVT 運行異常: {type(e).__name__}: {e}")
 
-            # 若原本已連線成功卻在模擬途中意外斷線（非使用者主動停止），嘗試自動重連一次鎖定當前座標
             if was_connected_once and not self.user_requested_stop:
                 send_macos_notification("SIM-GPS 警報", "裝置連線中斷", "與 iPhone 連線意外中斷，正在嘗試自動重連...", sound_name="Basso")
                 cur_lat = state.get("current_lat") or init_lat
@@ -703,7 +760,6 @@ gps_service = IOSUserspaceGpsService()
 gps_service.start_worker()
 
 
-# 註冊系統終止信號 (SIGTERM / SIGINT)，確保按 Cmd+Q 或關閉程式時主動清除虛擬定位
 def _graceful_shutdown_handler(signum, frame):
     print(f"🛑 收到系統退出信號 ({signum})，正在安全還原 iPhone 真實定位...")
     try:
@@ -738,7 +794,6 @@ def clamp_step_to_speed_limit(
     """
     🎯【嚴格速度上限鎖 (Hard Velocity Clamp)】：
     確保加入任何真實 GPS 微幅抖動 (Jitter) 後，相鄰兩點間的實際球面距離除以 dt 絕對不會超過設定的 speed_kmh！
-    回傳: (clamped_lat, clamped_lon, actual_distance_meters)
     """
     max_step_meters = max(0.01, (max_speed_kmh / 3.6) * dt)
     actual_dist = calculate_distance(prev_lat, prev_lon, cand_lat, cand_lon)
@@ -810,15 +865,18 @@ state = {
     "is_simulating": False,
     "is_stopping": False,
     "is_returning_home": False,
-    "speed_kmh": cfg_data.get("speed_kmh", 18.0),
+    "speed_kmh": cfg_data.get("speed_kmh", 15.0),
+    "pikmin_tier": int(cfg_data.get("pikmin_tier", 5)),
     "random_level": cfg_data.get("random_level", 0),
     "loop_mode": cfg_data.get("loop_mode", "none"),
     "loop_count": cfg_data.get("loop_count", 1),
     "pause_remaining": 0.0,
     "actual_speed_kmh": 0.0,
     "is_cruising": False,
+    "is_cruise_paused": False,
     "cruise_waypoints": [],
     "original_waypoints": [],
+    "current_wp_index": 0,
     "current_loop_idx": 1,
     "target_loop_count": 1,
     "target_remaining_dist": 0.0,
@@ -828,12 +886,6 @@ state = {
 }
 
 async def scan_ios_devices_async() -> List[Dict]:
-    """
-    全方位掃描裝置：
-    1. 優先查詢 usbmuxd (USB 與 Wi-Fi Network)。
-    2. 補充查詢本機已建立 RemotePairing 無線憑證 (`~/.pymobiledevice3/remote_*.plist`) 或 macOS `remotepairingd` 發現的裝置，
-       確保拔掉 USB 線後即使 usbmuxd 尚未廣播，使用者也能在列表中看到手機並發起 Wi-Fi 連線。
-    """
     devices: List[Dict] = []
     seen_udids: set[str] = set()
 
@@ -886,7 +938,6 @@ async def scan_ios_devices_async() -> List[Dict]:
         print(f"[Scan] usbmux 掃描發生異常: {e}")
         add_debug_log("掃描 iOS 裝置異常", str(e), stage="裝置掃描", level="WARN")
 
-    # 補充已配對的 RemotePairing 無線裝置紀錄 (當拔除 USB 線且 usbmux 未列出時仍可點擊進行 Bonjour Wi-Fi 連線)
     try:
         for identifier, _, rec in iter_remote_pair_records_by_identifier():
             if identifier and identifier not in seen_udids:
@@ -912,11 +963,6 @@ async def scan_ios_devices_async() -> List[Dict]:
 
 
 def get_effective_step_meters(dt: float, allow_random_pause: bool = True) -> float:
-    """
-    計算時間步 dt (秒) 內的推進距離 (公尺)。
-    當開啟擬真降速 (random_level > 0) 時，最高推進速度限制在 speed_kmh 的 95% 以內，
-    預留 5% 餘裕給微幅方向抖動，確保疊加抖動後絕對不會超過 speed_kmh 上限！
-    """
     base_kmh = state["speed_kmh"]
     max_step = (base_kmh / 3.6) * dt
     if base_kmh >= 500.0 or state["random_level"] == 0:
@@ -940,10 +986,13 @@ def get_effective_step_meters(dt: float, allow_random_pause: bool = True) -> flo
 
 
 def update_eta_calculation():
+    """
+    根據 current_wp_index 精確計算當前圈剩餘航點距離 + 後續圈數距離，並更新 ETA。
+    """
     with state["lock"]:
         cur_lat = state["current_lat"]
         cur_lon = state["current_lon"]
-        spd_mps = (state["speed_kmh"] or 18.0) / 3.6
+        spd_mps = (state["speed_kmh"] or 15.0) / 3.6
 
         if state["is_stopping"] or state["is_returning_home"]:
             home_dist = calculate_distance(cur_lat, cur_lon, state["real_lat"], state["real_lon"])
@@ -953,30 +1002,67 @@ def update_eta_calculation():
             return
 
         wps = state["cruise_waypoints"]
-        if not wps:
+        idx = state["current_wp_index"]
+        if not wps or idx >= len(wps):
+            state["target_remaining_dist"] = 0.0
             state["total_remaining_dist"] = 0.0
             state["eta_seconds"] = 0
             return
 
-        single_lap_dist = 0.0
-        prev_lat, prev_lon = cur_lat, cur_lon
-        for wp in wps:
-            single_lap_dist += calculate_distance(prev_lat, prev_lon, wp["lat"], wp["lng"])
+        # 當前目標點距離
+        target_wp = wps[idx]
+        dist_to_target = calculate_distance(cur_lat, cur_lon, target_wp["lat"], target_wp["lng"])
+        state["target_remaining_dist"] = round(dist_to_target, 1)
+
+        # 本圈剩餘距離 (從 current_pos -> wps[idx] -> ... -> wps[-1])
+        rem_this_lap = dist_to_target
+        prev_lat, prev_lon = target_wp["lat"], target_wp["lng"]
+        for wp in wps[idx + 1:]:
+            rem_this_lap += calculate_distance(prev_lat, prev_lon, wp["lat"], wp["lng"])
             prev_lat, prev_lon = wp["lat"], wp["lng"]
 
         mode = state["loop_mode"]
-        if mode != "none" and len(state["original_waypoints"]) >= 2:
-            last = state["original_waypoints"][-1]
-            first = state["original_waypoints"][0]
-            single_lap_dist += calculate_distance(last["lat"], last["lng"], first["lat"], first["lng"])
+        # 計算單一完整循環圈距離 (wps[-1] -> wps[0] -> ... -> wps[-1])
+        full_lap_dist = 0.0
+        if len(wps) >= 2:
+            full_lap_dist += calculate_distance(wps[-1]["lat"], wps[-1]["lng"], wps[0]["lat"], wps[0]["lng"])
+            for i in range(len(wps) - 1):
+                full_lap_dist += calculate_distance(wps[i]["lat"], wps[i]["lng"], wps[i + 1]["lat"], wps[i + 1]["lng"])
 
-        total_dist = single_lap_dist
-        if mode == "custom":
-            rem_laps = max(1, state["target_loop_count"] - state["current_loop_idx"] + 1)
-            total_dist = single_lap_dist * rem_laps
+        total_dist = rem_this_lap
+        if mode == "infinite" and len(wps) >= 2:
+            # 無限循環下顯示當前圈包含閉環回點 1 的距離
+            total_dist = rem_this_lap + calculate_distance(wps[-1]["lat"], wps[-1]["lng"], wps[0]["lat"], wps[0]["lng"])
+        elif mode == "custom":
+            rem_extra_laps = max(0, state["target_loop_count"] - state["current_loop_idx"])
+            total_dist = rem_this_lap + (rem_extra_laps * full_lap_dist)
 
         state["total_remaining_dist"] = total_dist
         state["eta_seconds"] = int(math.ceil(total_dist / spd_mps)) if spd_mps > 0 else 0
+
+
+def compute_pikmin_stats(eta_seconds: int, speed_kmh: float, tier_id: int) -> Dict[str, Any]:
+    """計算指定時間與速度下的皮克敏花瓣消耗與種花產出統計。"""
+    tier = PIKMIN_TIERS.get(tier_id, PIKMIN_TIERS[5])
+    period_sec = tier["period_sec"]
+    over_speed_limit = speed_kmh > 20.0  # 皮克敏超過約 20 km/h 觸發高速限制無法種花
+
+    if eta_seconds <= 0:
+        ticks = 0
+        petals_used = 0
+        flowers_planted = 0
+    else:
+        ticks = int(math.floor(eta_seconds / period_sec)) + 1
+        petals_used = int(math.ceil(eta_seconds / period_sec))
+        flowers_planted = 0 if over_speed_limit else (ticks * tier["flowers_per_tick"])
+
+    return {
+        **tier,
+        "over_speed_limit": over_speed_limit,
+        "trip_petals": petals_used,
+        "trip_flowers": flowers_planted,
+        "trip_ticks": ticks,
+    }
 
 
 def backend_cruise_worker():
@@ -986,7 +1072,6 @@ def backend_cruise_worker():
 
     while True:
         try:
-            # 守護檢查：若宿主 Swift App 已被強制關閉 (孤兒進程保護)，主動清除手機虛擬定位並退出
             if PARENT_PID > 1 and os.getppid() != PARENT_PID:
                 print("🛑 偵測到宿主 App 已結束，自動清理定位並退出後端...")
                 if gps_service.is_connected:
@@ -1031,6 +1116,7 @@ def backend_cruise_worker():
                     state["is_simulating"] = False
                     state["is_stopping"] = False
                     state["is_returning_home"] = False
+                    state["is_cruise_paused"] = False
                     send_macos_notification("SIM-GPS", "已恢復真實定位", "iPhone 已依設定速度平滑返航並還原真實定位。", "Ping")
                 else:
                     ratio = step_meters / dist
@@ -1048,17 +1134,20 @@ def backend_cruise_worker():
                     gps_service.set_location(next_lat, next_lon)
                     update_eta_calculation()
 
-            # 🎯 模式 B：沿航點路徑自主巡航
+            # 🎯 模式 B：沿航點路徑自主巡航 (使用 current_wp_index 追蹤進度，支援隨時暫停續行與中途動態新增航點)
             elif state["is_cruising"]:
                 with state["lock"]:
                     wps = state["cruise_waypoints"]
-                    if not wps:
+                    idx = state["current_wp_index"]
+                    if not wps or idx >= len(wps):
                         state["is_cruising"] = False
+                        state["is_cruise_paused"] = False
+                        state["current_wp_index"] = 0
                         state["actual_speed_kmh"] = 0.0
                         send_macos_notification("SIM-GPS", "巡航完成", "所有航點已到達完畢！", "Glass")
                         time.sleep(TICK_SEC)
                         continue
-                    target = wps[0]
+                    target = wps[idx]
 
                 cur_lat = state["current_lat"]
                 cur_lon = state["current_lon"]
@@ -1093,25 +1182,30 @@ def backend_cruise_worker():
                     if arrived:
                         with state["lock"]:
                             mode = state["loop_mode"]
-                            if mode == "infinite":
-                                first = state["cruise_waypoints"].pop(0)
-                                state["cruise_waypoints"].append(first)
-                            elif mode == "custom":
-                                first = state["cruise_waypoints"].pop(0)
-                                state["cruise_waypoints"].append(first)
-                                orig_first = state["original_waypoints"][0]
-                                if (state["cruise_waypoints"][0]["lat"] == orig_first["lat"] and
-                                    state["cruise_waypoints"][0]["lng"] == orig_first["lng"]):
+                            next_idx = state["current_wp_index"] + 1
+                            total_wps = len(state["cruise_waypoints"])
+
+                            if next_idx < total_wps:
+                                state["current_wp_index"] = next_idx
+                            else:
+                                # 已到達最後一個航點
+                                if mode == "infinite":
+                                    state["current_wp_index"] = 0
                                     state["current_loop_idx"] += 1
-                                    if state["current_loop_idx"] > state["target_loop_count"]:
+                                elif mode == "custom":
+                                    if state["current_loop_idx"] < state["target_loop_count"]:
+                                        state["current_loop_idx"] += 1
+                                        state["current_wp_index"] = 0
+                                    else:
                                         state["is_cruising"] = False
-                                        state["cruise_waypoints"] = []
+                                        state["is_cruise_paused"] = False
+                                        state["current_wp_index"] = 0
                                         state["actual_speed_kmh"] = 0.0
                                         send_macos_notification("SIM-GPS", "巡航完成", f"已完成指定的 {state['target_loop_count']} 圈巡航！", "Glass")
-                            else:
-                                state["cruise_waypoints"].pop(0)
-                                if len(state["cruise_waypoints"]) == 0:
+                                else:
                                     state["is_cruising"] = False
+                                    state["is_cruise_paused"] = False
+                                    state["current_wp_index"] = 0
                                     state["actual_speed_kmh"] = 0.0
                                     send_macos_notification("SIM-GPS", "巡航完成", "單次巡航任務已結束！", "Glass")
                 else:
@@ -1119,7 +1213,7 @@ def backend_cruise_worker():
 
                 update_eta_calculation()
 
-            # 🎯 模式 C：定點駐留微幅漂移 (當 random_level > 0 時，每 2 秒在錨點周圍微幅漂移，且嚴格限制不超速)
+            # 🎯 模式 C：定點駐留微幅漂移
             else:
                 state["actual_speed_kmh"] = 0.0
                 if state["random_level"] > 0 and (now - last_stationary_jitter) >= 2.0:
@@ -1201,9 +1295,16 @@ class StartCruiseRequest(BaseModel):
     waypoints: List[dict]
     loop_mode: str
     loop_count: int
+    resume: Optional[bool] = True
+    reset: Optional[bool] = False
+
+class SyncWaypointsRequest(BaseModel):
+    waypoints: List[dict]
+    removed_index: Optional[int] = None
 
 class SettingsRequest(BaseModel):
     speed_kmh: Optional[float] = None
+    pikmin_tier: Optional[int] = None
     random_level: Optional[int] = None
     loop_mode: Optional[str] = None
     loop_count: Optional[int] = None
@@ -1251,6 +1352,8 @@ async def get_init_data():
         "init_lat": state["real_lat"],
         "init_lon": state["real_lon"],
         "speed_kmh": state["speed_kmh"],
+        "pikmin_tier": state["pikmin_tier"],
+        "pikmin_tiers": PIKMIN_TIERS,
         "random_level": state["random_level"],
         "loop_mode": state["loop_mode"],
         "loop_count": state["loop_count"],
@@ -1279,6 +1382,8 @@ async def get_status():
         err_count = len(debug_logs)
         latest_err_id = debug_logs[0]["id"] if debug_logs else 0
 
+    pikmin_stats = compute_pikmin_stats(state["eta_seconds"], state["speed_kmh"], state["pikmin_tier"])
+
     return {
         "is_simulating": is_sim,
         "is_connecting": gps_service.is_connecting,
@@ -1292,6 +1397,8 @@ async def get_status():
         "current_lat": state["current_lat"],
         "current_lon": state["current_lon"],
         "speed_kmh": state["speed_kmh"],
+        "pikmin_tier": state["pikmin_tier"],
+        "pikmin_stats": pikmin_stats,
         "actual_speed_kmh": state["actual_speed_kmh"],
         "random_level": state["random_level"],
         "loop_mode": state["loop_mode"],
@@ -1299,7 +1406,9 @@ async def get_status():
         "is_paused": state["pause_remaining"] > 0.0,
         "distance_from_origin": round(dist, 1),
         "is_cruising": state["is_cruising"],
+        "is_cruise_paused": state["is_cruise_paused"],
         "cruise_waypoints": state["cruise_waypoints"],
+        "current_wp_index": state["current_wp_index"],
         "current_loop_idx": state["current_loop_idx"],
         "target_loop_count": state["target_loop_count"],
         "target_remaining_dist": state["target_remaining_dist"],
@@ -1365,7 +1474,7 @@ async def geocode_search(q: str):
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "SIM-GPS-macOS-Client/1.3",
+                "User-Agent": "SIM-GPS-macOS-Client/1.4",
                 "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
             },
         )
@@ -1424,11 +1533,13 @@ async def connect_single_device(req: DeviceActionRequest):
 @app.post("/api/device/disconnect")
 async def disconnect_single_device(req: DeviceActionRequest):
     state["is_cruising"] = False
+    state["is_cruise_paused"] = False
     state["is_stopping"] = False
     state["is_returning_home"] = False
     gps_service.stop()
     state["is_simulating"] = False
     return {"status": "disconnected", "udid": req.udid, "connected_count": 0}
+
 
 @app.post("/api/cruise/start")
 async def start_backend_cruise(req: StartCruiseRequest):
@@ -1439,23 +1550,78 @@ async def start_backend_cruise(req: StartCruiseRequest):
         raise HTTPException(status_code=400, detail="航點清單不可為空")
 
     with state["lock"]:
-        state["cruise_waypoints"] = [dict(w) for w in req.waypoints]
-        state["original_waypoints"] = [dict(w) for w in req.waypoints]
+        new_wps = [{"lat": float(w["lat"]), "lng": float(w["lng"])} for w in req.waypoints]
+        should_resume = (
+            bool(req.resume)
+            and not bool(req.reset)
+            and (state["is_cruise_paused"] or state["is_cruising"])
+            and 0 <= state["current_wp_index"] < len(new_wps)
+        )
+        state["cruise_waypoints"] = new_wps
+        state["original_waypoints"] = [dict(w) for w in new_wps]
         state["loop_mode"] = req.loop_mode
         state["target_loop_count"] = max(1, req.loop_count)
-        state["current_loop_idx"] = 1
+        if not should_resume:
+            state["current_wp_index"] = 0
+            state["current_loop_idx"] = 1
         state["is_cruising"] = True
+        state["is_cruise_paused"] = False
 
     update_eta_calculation()
-    return {"status": "cruising_started"}
+    return {
+        "status": "cruising_resumed" if should_resume else "cruising_started",
+        "current_wp_index": state["current_wp_index"],
+        "current_loop_idx": state["current_loop_idx"],
+    }
+
 
 @app.post("/api/cruise/stop")
 async def stop_backend_cruise():
     with state["lock"]:
         state["is_cruising"] = False
+        # 保留暫停狀態與 current_wp_index，讓使用者再次點擊開始時能無縫接續當前行程
+        if state["cruise_waypoints"] and state["current_wp_index"] < len(state["cruise_waypoints"]):
+            state["is_cruise_paused"] = True
         state["anchor_lat"] = state["current_lat"]
         state["anchor_lon"] = state["current_lon"]
-    return {"status": "cruising_stopped"}
+    return {
+        "status": "cruising_paused",
+        "current_wp_index": state["current_wp_index"],
+        "is_cruise_paused": state["is_cruise_paused"],
+    }
+
+
+@app.post("/api/cruise/sync-waypoints")
+async def sync_cruise_waypoints(req: SyncWaypointsRequest):
+    """
+    🎯【行程中動態新增/刪除航點同步】：
+    當使用者在巡航中或暫停中於地圖新增航點或刪除航點時，即時更新後端航點清單並校正 current_wp_index，
+    讓行程無縫延續至新加入的航點！
+    """
+    with state["lock"]:
+        new_wps = [{"lat": float(w["lat"]), "lng": float(w["lng"])} for w in req.waypoints]
+        if not new_wps:
+            state["cruise_waypoints"] = []
+            state["original_waypoints"] = []
+            state["current_wp_index"] = 0
+            state["is_cruising"] = False
+            state["is_cruise_paused"] = False
+        else:
+            if req.removed_index is not None and req.removed_index < state["current_wp_index"]:
+                state["current_wp_index"] = max(0, state["current_wp_index"] - 1)
+            if state["current_wp_index"] >= len(new_wps):
+                state["current_wp_index"] = max(0, len(new_wps) - 1)
+            state["cruise_waypoints"] = new_wps
+            state["original_waypoints"] = [dict(w) for w in new_wps]
+
+    update_eta_calculation()
+    return {
+        "status": "synced",
+        "current_wp_index": state["current_wp_index"],
+        "total_waypoints": len(state["cruise_waypoints"]),
+        "eta_seconds": state["eta_seconds"],
+    }
+
 
 @app.post("/api/move")
 async def move_by_vector(req: MoveVectorRequest):
@@ -1464,19 +1630,18 @@ async def move_by_vector(req: MoveVectorRequest):
 
     if state["is_cruising"]:
         state["is_cruising"] = False
+        state["is_cruise_paused"] = True
 
     vec_mag = math.hypot(req.dx, req.dy)
     if vec_mag <= 0.001:
         return {"status": "idle", "current_lat": state["current_lat"], "current_lon": state["current_lon"]}
 
-    # 🎯【防連點超速鎖】：以伺服器真實流逝時間 (now - last_move_ts) 限制 effective_dt，杜絕狂點方向鈕導致瞬間移動超速
     now = time.monotonic()
     req_dt = max(0.05, min(1.0, req.dt if req.dt is not None else 0.5))
     with state["lock"]:
         last_ts = state.get("last_move_ts") or 0.0
         elapsed = (now - last_ts) if last_ts > 0.0 else req_dt
         if elapsed < 0.04:
-            # 距離上次手動移動不足 40ms，直接忽略以防止連點累加超速
             dist = calculate_distance(state["real_lat"], state["real_lon"], state["current_lat"], state["current_lon"])
             return {"status": "throttled", "current_lat": state["current_lat"], "current_lon": state["current_lon"], "distance": round(dist, 1)}
         dt = min(req_dt, elapsed)
@@ -1532,6 +1697,9 @@ async def teleport_to(req: TeleportRequest):
 async def update_settings(req: SettingsRequest):
     cfg = load_config()
     with state["lock"]:
+        if req.pikmin_tier is not None and req.pikmin_tier in PIKMIN_TIERS:
+            state["pikmin_tier"] = req.pikmin_tier
+            cfg["pikmin_tier"] = state["pikmin_tier"]
         if req.speed_kmh is not None:
             state["speed_kmh"] = max(1.0, min(req.speed_kmh, 1000.0))
             cfg["speed_kmh"] = state["speed_kmh"]
@@ -1551,6 +1719,8 @@ async def update_settings(req: SettingsRequest):
     return {
         "status": "ok",
         "speed_kmh": state["speed_kmh"],
+        "pikmin_tier": state["pikmin_tier"],
+        "pikmin_stats": compute_pikmin_stats(state["eta_seconds"], state["speed_kmh"], state["pikmin_tier"]),
         "random_level": state["random_level"],
         "loop_mode": state["loop_mode"],
         "loop_count": state["loop_count"],
@@ -1579,17 +1749,18 @@ async def delete_route(route_id: str):
     save_config(cfg)
     return {"status": "ok", "saved_routes": routes}
 
-# 🎯【真正以設定速度平滑返航回原位】：啟動背景返航任務，按照使用者設定的 speed_kmh 走回真實起點後再結束連線
 @app.post("/api/stop-smooth")
 async def stop_simulation_smooth():
     if not gps_service.is_connected:
         state["is_simulating"] = False
         state["is_stopping"] = False
         state["is_returning_home"] = False
+        state["is_cruise_paused"] = False
         return {"status": "not_running"}
 
     with state["lock"]:
         state["is_cruising"] = False
+        state["is_cruise_paused"] = False
         start_lat = state["current_lat"]
         start_lon = state["current_lon"]
         target_lat = state["real_lat"]
@@ -1625,6 +1796,7 @@ async def stop_simulation_smooth():
 async def stop_simulation_force():
     with state["lock"]:
         state["is_cruising"] = False
+        state["is_cruise_paused"] = False
         state["is_stopping"] = False
         state["is_returning_home"] = False
         state["actual_speed_kmh"] = 0.0
