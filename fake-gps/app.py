@@ -1,6 +1,6 @@
 """
 app.py
-iOS 虛擬定位控制器主服務 (模組化架構：整合 pikmin_model, debug_center, gps_tunnel, map_layers)
+iOS 虛擬定位控制器主服務 (模組化架構：整合 pikmin_model, pikmin_automation, debug_center, gps_tunnel, map_layers)
 """
 
 import os
@@ -50,6 +50,7 @@ from debug_center import (
 )
 from gps_tunnel import IOSUserspaceGpsService, scan_ios_devices_async
 from map_layers import DEFAULT_MAP_LAYER_ID, get_map_layers
+from pikmin_automation import DEFAULT_AUTOMATION_CONFIG, PikminAutomationManager
 from pikmin_model import (
     PIKMIN_TIERS,
     SPEED_MODES,
@@ -65,7 +66,7 @@ PARENT_PID = os.getppid()
 # 接收 Swift 傳遞的動態參數：app.py <PORT> <TOKEN> <NOTIFY_PORT>
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8000
 APP_INTERNAL_TOKEN = sys.argv[2] if len(sys.argv) > 2 else None
-NOTIFY_PORT = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else None
+NOTIFY_PORT = int(sys.argv[3]) if len(sys.argv[3:4]) and sys.argv[3].isdigit() else None
 configure_notify_port(NOTIFY_PORT)
 
 # 自動探測 web 靜態目錄位置
@@ -90,6 +91,7 @@ default_config = {
     "random_level": 0,
     "loop_mode": "none",
     "loop_count": 1,
+    "automation": dict(DEFAULT_AUTOMATION_CONFIG),
     "saved_routes": [
         {
             "id": "sample_1",
@@ -113,6 +115,7 @@ def load_config() -> dict:
                 data.setdefault("speed_mode", f"tier_{data.get('pikmin_tier', 5)}")
                 data.setdefault("planting_direction", "EW")
                 data.setdefault("active_map_layer", DEFAULT_MAP_LAYER_ID)
+                data.setdefault("automation", dict(DEFAULT_AUTOMATION_CONFIG))
                 return data
         except Exception:
             pass
@@ -263,7 +266,6 @@ signal.signal(signal.SIGINT, _graceful_shutdown_handler)
 
 def get_effective_step_meters(dt: float, allow_random_pause: bool = True) -> float:
     base_kmh = state["speed_kmh"]
-    # 在種花模式 (非 800 km/h 快速移動) 下，自動鎖定絕對不超過 20 km/h 上限
     if state.get("speed_mode") != "fast_800" and base_kmh < 500.0:
         base_kmh = min(base_kmh, V_HARD_CAP_KMH)
 
@@ -289,10 +291,6 @@ def get_effective_step_meters(dt: float, allow_random_pause: bool = True) -> flo
 
 
 def update_eta_calculation() -> None:
-    """
-    精確計算當前剩餘距離與 ETA：
-    在循環模式 (`loop_mode != 'none'`) 下，每一圈的結束點都是從最後一個航點 `wps[-1]` 回到原點 `wps[0]`。
-    """
     with state["lock"]:
         cur_lat = state["current_lat"]
         cur_lon = state["current_lon"]
@@ -347,6 +345,46 @@ def update_eta_calculation() -> None:
 
         state["total_remaining_dist"] = total_dist
         state["eta_seconds"] = int(math.ceil(total_dist / spd_mps)) if spd_mps > 0 else 0
+
+
+def _internal_pause_cruise() -> None:
+    with state["lock"]:
+        state["is_cruising"] = False
+        if state["cruise_waypoints"] and (
+            state["current_wp_index"] < len(state["cruise_waypoints"]) or state["returning_to_loop_origin"]
+        ):
+            state["is_cruise_paused"] = True
+        state["anchor_lat"] = state["current_lat"]
+        state["anchor_lon"] = state["current_lon"]
+
+
+def _internal_trigger_smooth_return() -> None:
+    with state["lock"]:
+        state["is_cruising"] = False
+        state["is_cruise_paused"] = False
+    if not gps_service.is_connected:
+        return
+    dist = calculate_distance(state["current_lat"], state["current_lon"], state["real_lat"], state["real_lon"])
+    if dist < 2.0:
+        gps_service.stop()
+        return
+    state["is_stopping"] = True
+    state["is_returning_home"] = True
+    update_eta_calculation()
+
+
+# 初始化皮克敏自動化守護管理員
+automation_mgr = PikminAutomationManager(
+    gps_service=gps_service,
+    state_ref=state,
+    config_getter=load_config,
+    config_saver=save_config,
+    stop_cruise_cb=_internal_pause_cruise,
+    stop_smooth_cb=_internal_trigger_smooth_return,
+    notify_port_getter=lambda: NOTIFY_PORT,
+    base_dirs=[APP_DIR, APP_DIR.parent, WEB_DIR],
+)
+automation_mgr.start_background_worker()
 
 
 def backend_cruise_worker() -> None:
@@ -616,6 +654,27 @@ class SettingsRequest(BaseModel):
     loop_count: Optional[int] = None
 
 
+class AutomationSettingsRequest(BaseModel):
+    low_battery_stop: Optional[bool] = None
+    low_battery_threshold: Optional[int] = None
+    overheat_notify: Optional[bool] = None
+    overheat_threshold_c: Optional[float] = None
+    overheat_auto_pause: Optional[bool] = None
+    crash_auto_pause: Optional[bool] = None
+    crash_auto_restart: Optional[bool] = None
+    screen_analysis_enabled: Optional[bool] = None
+    auto_navigate_to_map: Optional[bool] = None
+    coin_limit_auto_stop: Optional[bool] = None
+    coin_limit_keywords: Optional[str] = None
+    flower_limit_target: Optional[int] = None
+
+
+class RemoteTapRequest(BaseModel):
+    norm_x: float
+    norm_y: float
+    refresh_screen: Optional[bool] = True
+
+
 class SaveRouteRequest(BaseModel):
     name: str
     waypoints: List[dict]
@@ -676,6 +735,7 @@ async def get_init_data():
         "loop_mode": state["loop_mode"],
         "loop_count": state["loop_count"],
         "saved_routes": cfg.get("saved_routes", []),
+        "automation": automation_mgr.get_status_snapshot(include_screenshot=False),
     }
 
 
@@ -742,7 +802,84 @@ async def get_status():
         "eta_seconds": state["eta_seconds"],
         "debug_error_count": err_count,
         "latest_debug_id": latest_err_id,
+        "automation": automation_mgr.get_status_snapshot(include_screenshot=False),
     }
+
+
+# --- 🤖 皮克敏自動化守護與遠端操作 API ---
+
+@app.get("/api/automation/status")
+async def get_automation_status():
+    return automation_mgr.get_status_snapshot(include_screenshot=True)
+
+
+@app.post("/api/automation/settings")
+async def update_automation_settings(req: AutomationSettingsRequest):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    updated = automation_mgr.update_settings(updates)
+    return {
+        "status": "ok",
+        "settings": updated,
+        "automation": automation_mgr.get_status_snapshot(include_screenshot=True),
+    }
+
+
+@app.post("/api/automation/inspect-now")
+async def inspect_screen_now():
+    try:
+        res = await asyncio.to_thread(automation_mgr.inspect_screen_once, True)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/automation/tap")
+async def remote_tap_screen(req: RemoteTapRequest):
+    if not gps_service.is_connected:
+        raise HTTPException(status_code=400, detail="尚未連線至 iOS 裝置")
+    ok = await asyncio.to_thread(gps_service.tap_screen_sync, req.norm_x, req.norm_y)
+    if not ok:
+        raise HTTPException(status_code=500, detail="傳送模擬點擊 (HID Tap) 失敗")
+    if req.refresh_screen:
+        await asyncio.sleep(0.8)
+        try:
+            snap = await asyncio.to_thread(automation_mgr.inspect_screen_once, False)
+            return {"status": "tapped", "automation": snap}
+        except Exception:
+            pass
+    return {"status": "tapped", "automation": automation_mgr.get_status_snapshot(include_screenshot=True)}
+
+
+@app.post("/api/automation/stop-planting")
+async def manual_stop_planting_in_game():
+    if not gps_service.is_connected:
+        raise HTTPException(status_code=400, detail="尚未連線至 iOS 裝置")
+    try:
+        snap = await asyncio.to_thread(automation_mgr.inspect_screen_once, False)
+        if not snap.get("pikmin_foreground"):
+            raise HTTPException(status_code=400, detail="目前手機前景並非皮克敏畫面，為保護手機操作已取消自動點擊")
+        ok = await asyncio.to_thread(
+            automation_mgr.execute_stop_planting_sequence,
+            snap.get("screen_state", "flower_map"),
+            "手動觸發結束種花",
+        )
+        await asyncio.sleep(0.8)
+        snap = await asyncio.to_thread(automation_mgr.inspect_screen_once, False)
+        return {"status": "stopped" if ok else "failed", "automation": snap}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/automation/launch-pikmin")
+async def manual_launch_pikmin():
+    if not gps_service.is_connected:
+        raise HTTPException(status_code=400, detail="尚未連線至 iOS 裝置")
+    ok = await asyncio.to_thread(gps_service.launch_pikmin_sync)
+    if not ok:
+        raise HTTPException(status_code=500, detail="無法喚醒皮克敏 App，請確認手機已解鎖且已安裝 Pikmin Bloom")
+    return {"status": "launched"}
 
 
 @app.get("/api/debug-logs")
@@ -860,7 +997,6 @@ async def disconnect_single_device(req: DeviceActionRequest):
         state["is_returning_home"] = False
         return {"status": "disconnected", "udid": req.udid}
 
-    # 若尚未處於平滑返航狀態，且距離真實起點 >= 2 公尺，點擊「中斷」自動進入平滑回歸模式
     if not state["is_stopping"] and not state["is_returning_home"]:
         dist = calculate_distance(state["current_lat"], state["current_lon"], state["real_lat"], state["real_lon"])
         if dist >= 2.0:
@@ -875,7 +1011,6 @@ async def disconnect_single_device(req: DeviceActionRequest):
                 "distance_m": round(dist, 1),
             }
 
-    # 若已在起點附近 (< 2m) 或在返航途中再次點擊「強制中斷」，則立即斷開並還原
     state["is_stopping"] = False
     state["is_returning_home"] = False
     gps_service.stop()
@@ -918,14 +1053,7 @@ async def start_backend_cruise(req: StartCruiseRequest):
 
 @app.post("/api/cruise/stop")
 async def stop_backend_cruise():
-    with state["lock"]:
-        state["is_cruising"] = False
-        if state["cruise_waypoints"] and (
-            state["current_wp_index"] < len(state["cruise_waypoints"]) or state["returning_to_loop_origin"]
-        ):
-            state["is_cruise_paused"] = True
-        state["anchor_lat"] = state["current_lat"]
-        state["anchor_lon"] = state["current_lon"]
+    _internal_pause_cruise()
     return {
         "status": "cruising_paused",
         "current_wp_index": state["current_wp_index"],
@@ -1084,7 +1212,6 @@ async def update_settings(req: SettingsRequest):
             cfg["active_map_layer"] = state["active_map_layer"]
 
         if req.speed_kmh is not None:
-            # 若非 800 km/h 快速移動模式，強制鎖定最高上限為 20.0 km/h
             if state["speed_mode"] != "fast_800" and req.speed_kmh < 500.0:
                 state["speed_kmh"] = max(1.0, min(float(req.speed_kmh), V_HARD_CAP_KMH))
             else:

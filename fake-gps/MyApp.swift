@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import UserNotifications
 import Network
+import Vision
 
 @main
 struct iOSLocationControllerApp: App {
@@ -68,6 +69,58 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
             if let error = error {
                 print("❌ 原生通知發送失敗: \(error)")
             }
+        }
+    }
+
+    // 🎯 原生 macOS Vision OCR 文字辨識（供 Python 自動化模組呼叫，精準辨識種花數量與金幣上限文字）
+    static func performNativeOCR(imagePath: String) -> [String: Any] {
+        guard let nsImage = NSImage(contentsOfFile: imagePath),
+              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return ["ok": false, "error": "無法載入圖片: \(imagePath)", "texts": [], "banner_texts": []]
+        }
+
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["zh-Hant", "zh-Hans", "en-US"]
+        request.usesLanguageCorrection = true
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+            var allTexts: [String] = []
+            var bannerTexts: [String] = []
+            var items: [[String: Any]] = []
+
+            for obs in request.results ?? [] {
+                if let candidate = obs.topCandidates(1).first {
+                    let b = obs.boundingBox
+                    let cx = Double(b.origin.x + b.width / 2.0)
+                    let cy = Double(1.0 - (b.origin.y + b.height / 2.0))
+                    let text = candidate.string
+                    allTexts.append(text)
+                    // 種花頂部橫幅區域 (y 約在 0.11 ~ 0.25 之間)
+                    if cy >= 0.11 && cy <= 0.25 {
+                        bannerTexts.append(text)
+                    }
+                    items.append([
+                        "text": text,
+                        "x": (cx * 1000).rounded() / 1000,
+                        "y": (cy * 1000).rounded() / 1000,
+                        "w": (Double(b.width) * 1000).rounded() / 1000,
+                        "h": (Double(b.height) * 1000).rounded() / 1000
+                    ])
+                }
+            }
+            return [
+                "ok": true,
+                "texts": allTexts,
+                "banner_texts": bannerTexts,
+                "full_text": allTexts.joined(separator: " | "),
+                "banner_full_text": bannerTexts.joined(separator: " | "),
+                "items": items
+            ]
+        } catch {
+            return ["ok": false, "error": error.localizedDescription, "texts": [], "banner_texts": []]
         }
     }
 
@@ -180,7 +233,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         }
     }
 
-    // 🎯 接收來自 Python 後端直接發送的原生通知請求
+    // 🎯 接收來自 Python 後端直接發送的原生通知與原生 Vision OCR 請求
     func startNativeNotificationListener() {
         AppDelegate.notifyPort = AppDelegate.findFreePort()
         guard let port = NWEndpoint.Port(rawValue: UInt16(AppDelegate.notifyPort)) else { return }
@@ -188,28 +241,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         do {
             notifyListener = try NWListener(using: .tcp, on: port)
             notifyListener?.newConnectionHandler = { connection in
-                connection.start(queue: .main)
+                connection.start(queue: .global(qos: .userInitiated))
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
-                    if let data = data, let text = String(data: data, encoding: .utf8) {
-                        if let jsonStart = text.range(of: "\r\n\r\n") {
-                            let jsonString = String(text[jsonStart.upperBound...])
-                            if let jsonData = jsonString.data(using: .utf8),
-                               let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String] {
-                                let title = dict["title"] ?? "SIM-GPS"
-                                let subtitle = dict["subtitle"] ?? ""
-                                let message = dict["message"] ?? ""
-                                AppDelegate.sendAppNotification(title: title, subtitle: subtitle, body: message)
+                    var responseBody = "OK"
+                    var contentType = "text/plain; charset=utf-8"
+
+                    if let data = data, let text = String(data: data, encoding: .utf8),
+                       let jsonStart = text.range(of: "\r\n\r\n") {
+                        let jsonString = String(text[jsonStart.upperBound...])
+                        if let jsonData = jsonString.data(using: .utf8),
+                           let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                            let action = (dict["action"] as? String) ?? "notify"
+                            if action == "ocr", let imagePath = dict["image_path"] as? String {
+                                let ocrResult = AppDelegate.performNativeOCR(imagePath: imagePath)
+                                if let resData = try? JSONSerialization.data(withJSONObject: ocrResult),
+                                   let resStr = String(data: resData, encoding: .utf8) {
+                                    responseBody = resStr
+                                    contentType = "application/json; charset=utf-8"
+                                }
+                            } else {
+                                let title = (dict["title"] as? String) ?? "SIM-GPS"
+                                let subtitle = (dict["subtitle"] as? String) ?? ""
+                                let message = (dict["message"] as? String) ?? ""
+                                DispatchQueue.main.async {
+                                    AppDelegate.sendAppNotification(title: title, subtitle: subtitle, body: message)
+                                }
                             }
                         }
                     }
-                    let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
-                    connection.send(content: response.data(using: .utf8), completion: .contentProcessed({ _ in
+
+                    let bodyBytes = responseBody.data(using: .utf8) ?? Data()
+                    let header = "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(bodyBytes.count)\r\nConnection: close\r\n\r\n"
+                    var packet = header.data(using: .utf8) ?? Data()
+                    packet.append(bodyBytes)
+                    connection.send(content: packet, completion: .contentProcessed({ _ in
                         connection.cancel()
                     }))
                 }
             }
             notifyListener?.start(queue: .main)
-            print("🔔 原生通知監聽端點已啟動於 Port: \(AppDelegate.notifyPort)")
+            print("🔔 原生通知與 OCR 監聽端點已啟動於 Port: \(AppDelegate.notifyPort)")
         } catch {
             print("❌ 通知監聽端點啟動失敗: \(error)")
         }

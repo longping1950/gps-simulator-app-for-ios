@@ -1,6 +1,6 @@
 """
 gps_tunnel.py
-iOS 裝置探索、DDI 開發者映像檔掛載狀態檢測、RemotePairing 自動配對與 RSD/DVT 長連接定位通道模組
+iOS 裝置探索、DDI 開發者映像檔掛載狀態檢測、RemotePairing 自動配對、RSD/DVT 長連接定位通道與自動化控制介面
 """
 
 import asyncio
@@ -9,7 +9,7 @@ import platform
 import threading
 import time
 import traceback
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from packaging.version import Version
 
 from pymobiledevice3 import usbmux
@@ -42,8 +42,13 @@ from pymobiledevice3.remote.userspace_tunnel import (
     UserspaceTun,
     _lifecycle_lock,
 )
+from pymobiledevice3.services.diagnostics import DiagnosticsService
+from pymobiledevice3.services.dvt.instruments.device_info import DeviceInfo
 from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
+from pymobiledevice3.services.dvt.instruments.process_control import ProcessControl
+from pymobiledevice3.services.dvt.instruments.screenshot import Screenshot
+from pymobiledevice3.services.dvt.instruments.sysmontap import Sysmontap
 from pymobiledevice3.services.mobile_image_mounter import (
     CRYPTEX_IMAGE_MIN_VERSION,
     MobileImageMounterService,
@@ -100,6 +105,53 @@ async def check_device_ddi_status(provider) -> tuple[Optional[bool], Optional[bo
         ddi_mounted = None
 
     return dev_mode_enabled, ddi_mounted
+
+
+async def query_battery_from_lockdown(lockdown: LockdownClient) -> Dict[str, Any]:
+    """
+    透過 DiagnosticsService 或 Lockdown Battery Domain 讀取 iPhone 電量百分比、充電狀態與實體溫度 (°C)
+    """
+    bat_level: Optional[int] = None
+    is_charging: Optional[bool] = None
+    temp_c: Optional[float] = None
+
+    try:
+        async with DiagnosticsService(lockdown) as diag:
+            info = await asyncio.wait_for(diag.get_battery(), timeout=1.8)
+            if isinstance(info, dict):
+                cap = info.get("CurrentCapacity")
+                if isinstance(cap, (int, float)) and 0 <= cap <= 100:
+                    bat_level = int(cap)
+                chg = info.get("IsCharging")
+                ext = info.get("ExternalConnected")
+                if isinstance(chg, bool):
+                    is_charging = chg or bool(ext)
+                raw_temp = info.get("Temperature")
+                if isinstance(raw_temp, (int, float)) and raw_temp > 0:
+                    # Apple IOPMPowerSource Temperature 單位為 0.01°C (例如 3580 = 35.8°C)
+                    temp_c = round(raw_temp / 100.0, 1) if raw_temp > 200 else round(float(raw_temp), 1)
+    except Exception:
+        pass
+
+    if bat_level is None:
+        try:
+            b_dom = await asyncio.wait_for(lockdown.get_value(domain="com.apple.mobile.battery"), timeout=1.0)
+            if isinstance(b_dom, dict):
+                cap = b_dom.get("BatteryCurrentCapacity")
+                if isinstance(cap, (int, float)):
+                    bat_level = int(cap)
+                chg = b_dom.get("BatteryIsCharging")
+                ext = b_dom.get("ExternalConnected")
+                if isinstance(chg, bool):
+                    is_charging = chg or bool(ext)
+        except Exception:
+            pass
+
+    return {
+        "battery_level": bat_level,
+        "is_charging": is_charging,
+        "temperature_c": temp_c,
+    }
 
 
 async def _ensure_ddi_mounted(provider, service_ref=None) -> None:
@@ -260,6 +312,9 @@ class IOSUserspaceGpsService:
         self.last_error: Optional[str] = None
         self.ddi_mounted_udids: set[str] = set()
         self.sim = None
+        self.active_provider: Any = None
+        self.active_dvt: Optional[DvtProvider] = None
+        self._dvt_op_lock: Optional[asyncio.Lock] = None
 
     def start_worker(self):
         if self.worker_thread is not None and self.worker_thread.is_alive():
@@ -269,6 +324,7 @@ class IOSUserspaceGpsService:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
             self.cmd_queue = asyncio.Queue()
+            self._dvt_op_lock = asyncio.Lock()
             try:
                 self.loop.run_until_complete(self._event_dispatcher())
             finally:
@@ -299,7 +355,9 @@ class IOSUserspaceGpsService:
             elif action == "SHUTDOWN":
                 break
 
-    async def _run_sim_loop(self, sim: LocationSimulation, init_lat: float, init_lon: float):
+    async def _run_sim_loop(self, provider: Any, dvt: DvtProvider, sim: LocationSimulation, init_lat: float, init_lon: float):
+        self.active_provider = provider
+        self.active_dvt = dvt
         self.sim = sim
         await sim.set(init_lat, init_lon)
         self.is_connected = True
@@ -336,6 +394,8 @@ class IOSUserspaceGpsService:
             self.is_connected = False
             self.is_running = False
             self.sim = None
+            self.active_dvt = None
+            self.active_provider = None
 
     async def _run_dvt_session(self, udid: str, init_lat: float, init_lon: float):
         self.is_connecting = True
@@ -402,7 +462,7 @@ class IOSUserspaceGpsService:
                         print("⏳ [iOS < 17] 正在直接透過 Lockdown 掛載 DvtProvider 與 LocationSimulation...")
                         async with DvtProvider(lockdown) as dvt, LocationSimulation(dvt) as sim:
                             was_connected_once = True
-                            await self._run_sim_loop(sim, init_lat, init_lon)
+                            await self._run_sim_loop(lockdown, dvt, sim, init_lat, init_lon)
                         return
 
             except (NoDeviceConnectedError, MuxException) as mux_err:
@@ -424,7 +484,7 @@ class IOSUserspaceGpsService:
                 print("⏳ [4/4] 正在掛載 DvtProvider 與 LocationSimulation...")
                 async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as sim:
                     was_connected_once = True
-                    await self._run_sim_loop(sim, init_lat, init_lon)
+                    await self._run_sim_loop(rsd, dvt, sim, init_lat, init_lon)
 
         except (NotPairedError, UserDeniedPairingError, PairingError) as e:
             self.is_connected = False
@@ -495,6 +555,8 @@ class IOSUserspaceGpsService:
                     await self.cmd_queue.put(("START", (target_serial or "default", cur_lat, cur_lon)))
         finally:
             self.sim = None
+            self.active_dvt = None
+            self.active_provider = None
             self.is_connected = False
             self.is_running = False
             self.is_connecting = False
@@ -521,10 +583,261 @@ class IOSUserspaceGpsService:
         if (self.is_connected or self.is_running or self.is_connecting) and self.loop:
             asyncio.run_coroutine_threadsafe(self.cmd_queue.put(("STOP", None)), self.loop)
 
+    # --- 🤖 皮克敏自動化守護專用 DVT / CoreDevice 同步包裝方法 ---
+
+    async def _async_query_pikmin_process(self) -> Dict[str, Any]:
+        if not self.is_connected or self.active_dvt is None:
+            return {"running": None, "foreground_hint": None, "pid": None, "cpu": 0.0}
+
+        async with self._dvt_op_lock:
+            try:
+                async with DeviceInfo(self.active_dvt) as dev_info:
+                    procs = await asyncio.wait_for(dev_info.proclist(), timeout=2.5)
+                pikmin_proc = None
+                for p in procs:
+                    name = str(p.get("name") or "")
+                    real_app = str(p.get("realAppName") or "")
+                    bundle_id = str(p.get("bundleIdentifier") or "")
+                    if (
+                        "pikmin" in name.lower()
+                        or "pikmin" in real_app.lower()
+                        or "com.nianticlabs.pikmin" in bundle_id.lower()
+                    ):
+                        pikmin_proc = p
+                        break
+
+                if pikmin_proc is None:
+                    return {"running": False, "foreground_hint": False, "pid": None, "cpu": 0.0}
+
+                pid = pikmin_proc.get("pid")
+                fg_flag = pikmin_proc.get("foreground")
+                cpu_usage = 0.0
+
+                # 若 proclist 未直接提供 foreground 旗標，可透過輕量 Sysmontap 取樣判斷 CPU 是否處於前景渲染活躍狀態
+                try:
+                    async with await Sysmontap.create(self.active_dvt, interval=250) as sysmon:
+                        sample_idx = 0
+                        async for entries in sysmon.iter_processes():
+                            sample_idx += 1
+                            for item in entries:
+                                if item.get("pid") == pid or "pikmin" in str(item.get("name", "")).lower():
+                                    raw_cpu = item.get("cpuUsage")
+                                    if isinstance(raw_cpu, (int, float)):
+                                        cpu_usage = float(raw_cpu)
+                                    if "foreground" in item and isinstance(item["foreground"], bool):
+                                        fg_flag = item["foreground"]
+                            if sample_idx >= 2:
+                                break
+                except Exception:
+                    pass
+
+                # Unity 3D 前景渲染時 CPU 通常 > 3%，若明確為 background 或 CPU 極低 (< 0.4%) 則視為背景
+                if isinstance(fg_flag, bool):
+                    fg_hint = fg_flag
+                else:
+                    fg_hint = None if cpu_usage == 0.0 else (cpu_usage >= 1.5)
+
+                return {
+                    "running": True,
+                    "foreground_hint": fg_hint,
+                    "pid": pid,
+                    "cpu": round(cpu_usage, 1),
+                }
+            except Exception as e:
+                print(f"[DVT] 查詢皮克敏 Process 狀態異常: {e}")
+                return {"running": None, "foreground_hint": None, "pid": None, "cpu": 0.0}
+
+    def query_pikmin_process_sync(self) -> Dict[str, Any]:
+        if not self.is_connected or not self.loop:
+            return {"running": None, "foreground_hint": None, "pid": None, "cpu": 0.0}
+        fut = asyncio.run_coroutine_threadsafe(self._async_query_pikmin_process(), self.loop)
+        try:
+            return fut.result(timeout=5.0)
+        except Exception:
+            return {"running": None, "foreground_hint": None, "pid": None, "cpu": 0.0}
+
+    async def _async_query_battery_and_pikmin(self) -> Dict[str, Any]:
+        bat_data: Dict[str, Any] = {"battery_level": None, "is_charging": None, "temperature_c": None}
+        target_udid = self.current_udid if (self.current_udid and self.current_udid != "default") else None
+        try:
+            async with await asyncio.wait_for(
+                create_using_usbmux(serial=target_udid, autopair=False),
+                timeout=1.8,
+            ) as lockdown:
+                bat_data = await query_battery_from_lockdown(lockdown)
+        except Exception:
+            # 若為純 RemoteXPC RSD 通道，嘗試透過 RSD 建立 DiagnosticsService
+            if isinstance(self.active_provider, RemoteServiceDiscoveryService):
+                try:
+                    async with DiagnosticsService(self.active_provider) as diag:
+                        info = await asyncio.wait_for(diag.get_battery(), timeout=1.8)
+                        if isinstance(info, dict):
+                            cap = info.get("CurrentCapacity")
+                            if isinstance(cap, (int, float)):
+                                bat_data["battery_level"] = int(cap)
+                            bat_data["is_charging"] = bool(info.get("IsCharging") or info.get("ExternalConnected"))
+                            raw_t = info.get("Temperature")
+                            if isinstance(raw_t, (int, float)) and raw_t > 0:
+                                bat_data["temperature_c"] = round(raw_t / 100.0, 1) if raw_t > 200 else round(float(raw_t), 1)
+                except Exception:
+                    pass
+
+        proc_data = await self._async_query_pikmin_process()
+        return {
+            **bat_data,
+            "pikmin_running": proc_data.get("running"),
+            "pikmin_foreground_hint": proc_data.get("foreground_hint"),
+            "pikmin_pid": proc_data.get("pid"),
+            "pikmin_cpu": proc_data.get("cpu", 0.0),
+        }
+
+    def query_battery_and_pikmin_sync(self) -> Dict[str, Any]:
+        if not self.is_connected or not self.loop:
+            return {}
+        fut = asyncio.run_coroutine_threadsafe(self._async_query_battery_and_pikmin(), self.loop)
+        try:
+            return fut.result(timeout=6.0)
+        except Exception:
+            return {}
+
+    async def _async_capture_screenshot(self) -> Optional[bytes]:
+        if not self.is_connected:
+            return None
+        async with self._dvt_op_lock:
+            # 優先透過已開啟的 DVT 通道擷取螢幕畫面
+            if self.active_dvt is not None:
+                try:
+                    async with Screenshot(self.active_dvt) as shot:
+                        data = await asyncio.wait_for(shot.get_screenshot(), timeout=4.0)
+                        if data:
+                            return bytes(data)
+                except Exception as e:
+                    print(f"[DVT] Screenshot 擷取異常，嘗試 CoreDevice ScreenCaptureService: {e}")
+
+            # 備援：透過 CoreDevice ScreenCaptureService 擷取
+            if isinstance(self.active_provider, RemoteServiceDiscoveryService):
+                try:
+                    from pymobiledevice3.remote.core_device.screen_capture_service import ScreenCaptureService
+                    async with ScreenCaptureService(self.active_provider) as cap_svc:
+                        res = await asyncio.wait_for(cap_svc.capture_screenshot(), timeout=4.5)
+                        if isinstance(res, dict) and res.get("image"):
+                            return bytes(res["image"])
+                except Exception as e2:
+                    print(f"[CoreDevice] ScreenCaptureService 擷取失敗: {e2}")
+        return None
+
+    def capture_screenshot_sync(self) -> Optional[bytes]:
+        if not self.is_connected or not self.loop:
+            return None
+        fut = asyncio.run_coroutine_threadsafe(self._async_capture_screenshot(), self.loop)
+        try:
+            return fut.result(timeout=7.0)
+        except Exception as e:
+            print(f"[Screenshot] 同步等待逾時: {e}")
+            return None
+
+    async def _async_tap_screen(self, norm_x: float, norm_y: float) -> bool:
+        if not self.is_connected or not isinstance(self.active_provider, RemoteServiceDiscoveryService):
+            return False
+        hid_x = int(round(max(0.0, min(1.0, norm_x)) * 65535))
+        hid_y = int(round(max(0.0, min(1.0, norm_y)) * 65535))
+
+        async with self._dvt_op_lock:
+            try:
+                from pymobiledevice3.remote.core_device.hid_service import (
+                    DIGITIZER_SURFACE_MAIN_TOUCHSCREEN,
+                    TOUCHSCREEN_STATE_CONTACT,
+                    TOUCHSCREEN_STATE_RELEASE,
+                    touch_session,
+                )
+                async with touch_session(self.active_provider) as hid:
+                    await hid.send_touchscreen(
+                        TOUCHSCREEN_STATE_CONTACT,
+                        hid_x,
+                        hid_y,
+                        service_id=DIGITIZER_SURFACE_MAIN_TOUCHSCREEN,
+                    )
+                    await asyncio.sleep(0.06)
+                    await hid.send_touchscreen(
+                        TOUCHSCREEN_STATE_RELEASE,
+                        hid_x,
+                        hid_y,
+                        service_id=DIGITIZER_SURFACE_MAIN_TOUCHSCREEN,
+                    )
+                print(f"👆 [HID Tap] 已傳送螢幕點擊: norm=({norm_x:.3f}, {norm_y:.3f}) -> HID=({hid_x}, {hid_y})")
+                return True
+            except Exception as e:
+                add_debug_log(
+                    title="傳送螢幕模擬點擊 (HID Tap) 失敗",
+                    error_msg=f"{type(e).__name__}: {e}",
+                    stage="遠端觸控",
+                    level="WARN",
+                    udid=self.current_udid,
+                )
+                print(f"❌ [HID Tap] 失敗: {e}")
+                return False
+
+    def tap_screen_sync(self, norm_x: float, norm_y: float) -> bool:
+        if not self.is_connected or not self.loop:
+            return False
+        fut = asyncio.run_coroutine_threadsafe(self._async_tap_screen(norm_x, norm_y), self.loop)
+        try:
+            return bool(fut.result(timeout=12.0))
+        except Exception as e:
+            print(f"[HID Tap] 同步等待逾時: {e}")
+            return False
+
+    async def _async_launch_pikmin(self, bundle_id: str = "com.nianticlabs.pikmin") -> bool:
+        if not self.is_connected:
+            return False
+        async with self._dvt_op_lock:
+            # 1. 優先使用 DVT ProcessControl.launch
+            if self.active_dvt is not None:
+                try:
+                    async with ProcessControl(self.active_dvt) as proc_ctrl:
+                        pid = await asyncio.wait_for(
+                            proc_ctrl.launch(bundle_id=bundle_id, kill_existing=False),
+                            timeout=6.0,
+                        )
+                        print(f"🚀 [DVT] 已成功啟動皮克敏 ({bundle_id}), PID={pid}")
+                        return True
+                except Exception as e:
+                    print(f"[DVT] ProcessControl 啟動皮克敏失敗，改試 AppService: {e}")
+
+            # 2. 備援使用 CoreDevice AppServiceService
+            if isinstance(self.active_provider, RemoteServiceDiscoveryService):
+                try:
+                    from pymobiledevice3.remote.core_device.app_service import AppServiceService
+                    async with AppServiceService(self.active_provider) as app_svc:
+                        await asyncio.wait_for(
+                            app_svc.launch_application(bundle_id, kill_existing=False),
+                            timeout=6.0,
+                        )
+                        print(f"🚀 [AppService] 已成功啟動皮克敏 ({bundle_id})")
+                        return True
+                except Exception as e2:
+                    add_debug_log(
+                        title="自動啟動皮克敏 App 失敗",
+                        error_msg=f"{type(e2).__name__}: {e2}",
+                        stage="自動重啟 App",
+                        level="WARN",
+                        udid=self.current_udid,
+                    )
+        return False
+
+    def launch_pikmin_sync(self, bundle_id: str = "com.nianticlabs.pikmin") -> bool:
+        if not self.is_connected or not self.loop:
+            return False
+        fut = asyncio.run_coroutine_threadsafe(self._async_launch_pikmin(bundle_id), self.loop)
+        try:
+            return bool(fut.result(timeout=8.0))
+        except Exception:
+            return False
+
 
 async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Dict[str, Any]]:
     """
-    掃描所有可用 iOS 裝置（USB + Wi-Fi），並檢測每台裝置是否已開啟開發者模式與掛載 DDI 映像檔
+    掃描所有可用 iOS 裝置（USB + Wi-Fi），並檢測每台裝置的 DDI 狀態、電量百分比与溫度
     """
     devices: List[Dict[str, Any]] = []
     seen_udids: set[str] = set()
@@ -546,6 +859,7 @@ async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Di
             ddi_mounted: Optional[bool] = (
                 True if (gps_service.is_connected and gps_service.current_udid == udid) or (udid in gps_service.ddi_mounted_udids) else None
             )
+            bat_info: Dict[str, Any] = {"battery_level": None, "is_charging": None, "temperature_c": None}
 
             try:
                 lockdown = await asyncio.wait_for(
@@ -554,7 +868,7 @@ async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Di
                         autopair=False,
                         connection_type=mux_dev.connection_type,
                     ),
-                    timeout=1.4,
+                    timeout=1.5,
                 )
                 try:
                     prod_type = lockdown.display_name or lockdown.product_type or "iPhone"
@@ -576,6 +890,8 @@ async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Di
                             gps_service.ddi_mounted_udids.add(udid)
                         else:
                             gps_service.ddi_mounted_udids.discard(udid)
+
+                    bat_info = await query_battery_from_lockdown(lockdown)
                 finally:
                     await lockdown.close()
             except Exception:
@@ -603,6 +919,9 @@ async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Di
                 "ddi_mounted": ddi_mounted,
                 "ddi_status": ddi_status,
                 "ddi_label": ddi_label,
+                "battery_level": bat_info.get("battery_level"),
+                "is_charging": bat_info.get("is_charging"),
+                "temperature_c": bat_info.get("temperature_c"),
             })
     except Exception as e:
         print(f"[Scan] usbmux 掃描發生異常: {e}")
@@ -626,6 +945,9 @@ async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Di
                     "ddi_mounted": True if is_active_ddi else None,
                     "ddi_status": "mounted" if is_active_ddi else "unknown",
                     "ddi_label": "DDI 已掛載" if is_active_ddi else "連線時自動檢查 DDI",
+                    "battery_level": None,
+                    "is_charging": None,
+                    "temperature_c": None,
                 })
     except Exception:
         pass
@@ -640,5 +962,8 @@ async def scan_ios_devices_async(gps_service: IOSUserspaceGpsService) -> List[Di
             "ddi_mounted": None,
             "ddi_status": "unknown",
             "ddi_label": "連線時自動檢查 DDI",
+            "battery_level": None,
+            "is_charging": None,
+            "temperature_c": None,
         })
     return devices

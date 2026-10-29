@@ -422,8 +422,9 @@
                 <span id="left-collapse-icon" style="font-size:12px; color:#6b7280;">◀</span>
                 <h3 style="margin:0; font-size:15px;" id="left-panel-title">模擬控制台</h3>
             </div>
-            <div class="collapse-hide" style="display:flex; gap:6px;">
-                <button class="btn btn-tool" style="width:auto; padding:3px 9px; margin:0; font-size:11.5px;" onclick="openGuide()">❓ 指引</button>
+            <div class="collapse-hide" style="display:flex; gap:5px;">
+                <button class="btn btn-tool" style="width:auto; padding:3px 8px; margin:0; font-size:11.5px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff; font-weight:700;" onclick="openAutomationModal()" title="開啟皮克敏自動化守護與畫面辨識設定">⚙️ 自動化</button>
+                <button class="btn btn-tool" style="width:auto; padding:3px 8px; margin:0; font-size:11.5px;" onclick="openGuide()">❓ 指引</button>
                 <button class="collapse-toggle-btn" title="收合控制台" onclick="togglePanel('left')">✕</button>
             </div>
         </div>
@@ -440,12 +441,17 @@
                 </div>
             </div>
 
-            <!-- 簡潔雙欄狀態列 -->
+            <!-- 簡潔雙欄狀態列 (含電量、溫度與皮克敏前景狀態摘要) -->
             <div class="status-strip">
                 <div>狀態: <b id="sim-status" style="color:#8e8e93;">未啟動</b></div>
                 <div>離起點: <b id="dist-info">0.0 m</b></div>
-                <div style="grid-column: span 2; font-size:11px; color:#475569;">
-                    連線通道: <b id="connected-count" style="color:#007aff;">未連線</b>
+                <div style="grid-column: span 2; font-size:11px; color:#475569; display:flex; justify-content:space-between; align-items:center;">
+                    <span>連線通道: <b id="connected-count" style="color:#007aff;">未連線</b></span>
+                    <span id="hw-telemetry-pill" style="font-weight:700; color:#334155;">🔋 --% · 🌡️ --°C</span>
+                </div>
+                <div style="grid-column: span 2; font-size:11px; color:#475569; display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #e2e8f0; padding-top:4px;">
+                    <span>皮克敏狀態: <b id="pikmin-fg-badge" style="color:#64748b;">⚪ 尚未連線</b></span>
+                    <a href="javascript:void(0)" onclick="openAutomationModal()" style="font-size:10.5px; color:#2563eb; font-weight:700; text-decoration:none;">⚙️ 自動化設定 ›</a>
                 </div>
             </div>
 
@@ -761,6 +767,185 @@
                 <button class="btn btn-tool" style="flex:1; margin:0;" onclick="copyDebugReport()">📋 複製診斷報告</button>
                 <button class="btn btn-tool" style="flex:1; margin:0; color:#ef4444;" onclick="clearDebugLogs()">🗑️ 清空紀錄</button>
                 <button class="btn btn-start" style="flex:1; margin:0;" onclick="closeDebugModal()">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ⚙️ 皮克敏自動化與守護設定獨立彈窗 -->
+    <div id="automation-modal" class="modal-overlay" style="z-index: 2450;" onclick="closeAutomationModal(event)">
+        <div class="modal-card" style="max-width: 820px; width: 95%;" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+                <div>
+                    <h3 style="margin:0; font-size:16px; color:#0f172a;">⚙️ 皮克敏自動化守護、畫面辨識與遠端遙控設定</h3>
+                    <div style="font-size:11.5px; color:#64748b; margin-top:2px;">集中管理低電量、過熱通知、閃退重啟、每分鐘畫面擷取分析與金幣上限自動結束</div>
+                </div>
+                <button class="collapse-toggle-btn" onclick="closeAutomationModal()">✕</button>
+            </div>
+
+            <!-- 🛡️ 前景安全保護明確告知橫幅 -->
+            <div style="background:#eff6ff; border:1px solid #93c5fd; border-left:4px solid #2563eb; border-radius:8px; padding:8px 12px; margin-top:10px; font-size:12px; color:#1e3a8a; line-height:1.5;">
+                <b>🛡️ 前景執行保護說明：</b>所有<b>「每分鐘畫面擷取分析」</b>與<b>「自動點擊返回／結束種花」</b>功能，<b>僅會在偵測到皮克敏處於手機前端（前景畫面）時執行</b>。當您在手機上切換至其他 App（如 LINE、Safari）或鎖定螢幕時，系統只會維持背景 GPS 巡航，<b>自動跳過截圖與點擊動作，絕不干擾您的手機操作</b>。
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1.25fr 1fr; gap:14px; overflow-y:auto; flex:1; margin:10px 0; padding-right:4px;">
+                <!-- 左欄：自動化開關與門檻設定 -->
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <!-- 1. 電量與過熱保護 -->
+                    <div class="switch-group-card" style="margin-top:0; padding:8px 12px;">
+                        <div style="font-size:12.5px; font-weight:800; color:#0f172a; margin-bottom:4px;">🔋 電量與機身溫度守護</div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">🔋 低電量自動停止種花並平滑返航</div>
+                                <div class="switch-sub">未充電且電量低於門檻時自動結束種花並返航（皮克敏在前端時同步點停止種花）</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-low-bat" onchange="saveAutomationSettings()" />
+                                <span class="ios-slider"></span>
+                            </label>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11.5px; color:#475569;">
+                            <span>低電量觸發門檻 (%):</span>
+                            <input type="number" id="auto-input-low-bat" min="5" max="60" value="20" style="width:64px; padding:3px 6px; border:1px solid #cbd5e1; border-radius:6px; text-align:center;" onchange="saveAutomationSettings()" />
+                        </div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">🔥 機身過熱系統通知</div>
+                                <div class="switch-sub">電池感測溫度超過門檻時發送 macOS 警報通知提醒降溫</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-overheat" checked onchange="saveAutomationSettings()" />
+                                <span class="ios-slider"></span>
+                            </label>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11.5px; color:#475569;">
+                            <span>過熱通知門檻 (°C):</span>
+                            <input type="number" id="auto-input-overheat" min="35" max="48" step="0.5" value="40.0" style="width:64px; padding:3px 6px; border:1px solid #cbd5e1; border-radius:6px; text-align:center;" onchange="saveAutomationSettings()" />
+                        </div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">🛑 嚴重過熱 (>=43°C) 自動暫停巡航</div>
+                                <div class="switch-sub">避免高溫降頻導致手機卡頓或閃退</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-overheat-pause" onchange="saveAutomationSettings()" />
+                                <span class="ios-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 2. 閃退偵測與自動重啟 -->
+                    <div class="switch-group-card" style="margin-top:0; padding:8px 12px;">
+                        <div style="font-size:12.5px; font-weight:800; color:#0f172a; margin-bottom:4px;">💥 遊戲閃退監控與自動重啟</div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">⏸️ 偵測皮克敏閃退時自動暫停巡航並通知</div>
+                                <div class="switch-sub">檢測系統 Process 清單；您切換去滑其他 App 時 Process 仍在，不會誤判閃退</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-crash-pause" checked onchange="saveAutomationSettings()" />
+                                <span class="ios-slider blue"></span>
+                            </label>
+                        </div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">🔄 閃退後自動重新啟動皮克敏 App</div>
+                                <div class="switch-sub">當皮克敏 Process 消失時，自動在手機端喚醒啟動遊戲（需手機未鎖屏）</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-crash-restart" onchange="saveAutomationSettings()" />
+                                <span class="ios-slider purple"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 3. 每分鐘畫面擷取分析、自動導航與金幣上限結束 -->
+                    <div class="switch-group-card" style="margin-top:0; padding:8px 12px; background:#fdf2f8; border-color:#fbcfe8;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <span style="font-size:12.5px; font-weight:800; color:#be185d;">📸 畫面擷取分析與金幣上限自動結束</span>
+                            <span style="background:#fce7f3; color:#be185d; font-size:10px; font-weight:700; padding:2px 6px; border-radius:6px;">僅皮克敏在前端時執行</span>
+                        </div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">📸 啟用每分鐘畫面擷取與視覺/OCR分析</div>
+                                <div class="switch-sub" style="color:#be185d; font-weight:600;">⚠️ 僅於皮克敏在前端時執行截圖與辨識；背景運行或滑其他 App 時自動略過</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-screen" onchange="saveAutomationSettings()" />
+                                <span class="ios-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">🧭 非種花畫面自動導航回「種花地圖」</div>
+                                <div class="switch-sub">⚠️ 僅皮克敏在前端時執行：依參考圖比對，若在子頁自動點左下返回 <code>&lt;</code> 直到主頁，再點下方中央 <code>🧭</code> 回種花地圖</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-nav-map" checked onchange="saveAutomationSettings()" />
+                                <span class="ios-slider blue"></span>
+                            </label>
+                        </div>
+
+                        <div class="switch-row">
+                            <div>
+                                <div class="switch-label">💰 偵測「種花已達金幣上限」自動停止種花並返航</div>
+                                <div class="switch-sub">⚠️ 僅皮克敏在前端時執行：當橫幅出現上限文字／滿 60 金幣或達目標花數時，自動點右側花瓣鈕 <code>🌼</code> ➔ 橘色停止鈕 <code>⏹</code> 並啟動平滑返航</div>
+                            </div>
+                            <label class="ios-switch">
+                                <input type="checkbox" id="auto-sw-coin-stop" onchange="saveAutomationSettings()" />
+                                <span class="ios-slider purple"></span>
+                            </label>
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11.5px; color:#475569; gap:8px;">
+                            <span style="white-space:nowrap;">金幣上限偵測文字:</span>
+                            <input type="text" id="auto-input-coin-kw" value="上限,已達,已滿,今日上限,獲得上限" style="flex:1; padding:4px 7px; border:1px solid #f9a8d4; border-radius:6px; font-size:11px;" onchange="saveAutomationSettings()" title="以逗號分隔關鍵字，當種花橫幅出現任一關鍵字或滿60枚金幣時即判定達上限" />
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:11.5px; color:#475569;">
+                            <span>單趟花朵數量上限保底 (0=僅依金幣上限文字):</span>
+                            <input type="number" id="auto-input-flower-target" min="0" max="50000" step="500" value="15000" style="width:80px; padding:3px 6px; border:1px solid #f9a8d4; border-radius:6px; text-align:center;" onchange="saveAutomationSettings()" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右欄：即時畫面辨識狀態與遠端點擊遙控預覽 -->
+                <div style="display:flex; flex-direction:column; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <b style="font-size:12.5px; color:#0f172a;">📱 畫面辨識與遠端點擊遙控</b>
+                        <span id="auto-last-check-time" style="font-size:10.5px; color:#64748b;">尚未擷取</span>
+                    </div>
+
+                    <div style="background:white; border:1px solid #e2e8f0; border-radius:8px; padding:7px 9px; font-size:11.5px; display:flex; flex-direction:column; gap:3px;">
+                        <div style="display:flex; justify-content:space-between;"><span>App 狀態:</span> <b id="auto-modal-app-state" style="color:#64748b;">⚪ 尚未連線</b></div>
+                        <div style="display:flex; justify-content:space-between;"><span>畫面辨識:</span> <b id="auto-modal-screen-state" style="color:#0284c7;">尚未擷取</b></div>
+                        <div style="display:flex; justify-content:space-between;"><span>辨識花數 / 金幣:</span> <b id="auto-modal-flower-coin" style="color:#be185d;">🌼 -- 朵 / 🪙 -- 枚</b></div>
+                        <div style="font-size:10.5px; color:#475569; word-break:break-all;">橫幅 OCR: <span id="auto-modal-ocr-text" style="font-family:monospace; color:#1e293b;">--</span></div>
+                        <div style="font-size:10.5px; color:#059669; font-weight:600;">最近動作: <span id="auto-modal-last-action">待命</span></div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px;">
+                        <button class="btn btn-start" style="margin:0; padding:6px 4px; font-size:11px;" onclick="triggerInspectScreenNow(this)">📸 立即擷取分析</button>
+                        <button class="btn btn-tool" style="margin:0; padding:6px 4px; font-size:11px;" onclick="triggerLaunchPikmin()">🚀 啟動皮克敏</button>
+                        <button class="btn btn-action" style="margin:0; padding:6px 4px; font-size:11px;" onclick="triggerManualStopPlanting()">⏹️ 點擊停止種花</button>
+                    </div>
+
+                    <div style="font-size:10.5px; color:#64748b; text-align:center;">👇 點擊下方預覽畫面任意位置，可直接向手機發送遠端點擊 (Tap)</div>
+                    <div id="auto-screen-preview-box" style="flex:1; min-height:240px; max-height:360px; background:#0f172a; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; position:relative; border:1px solid #cbd5e1;">
+                        <div id="auto-screen-placeholder" style="color:#94a3b8; font-size:12px; text-align:center; padding:16px;">點擊上方「📸 立即擷取分析」<br>即可預覽手機畫面並測試視覺辨識</div>
+                        <img id="auto-screen-preview-img" src="" style="display:none; max-width:100%; max-height:356px; width:auto; height:auto; cursor:crosshair; user-select:none;" onclick="onRemotePreviewClick(event)" title="點擊畫面任意處直接傳送觸控點擊至手機" />
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+                <span style="font-size:11px; color:#64748b;">已載入參考圖：<b id="auto-ref-loaded-label">主頁.PNG, 地圖（顯示花朵）.PNG, 選花畫面（結束種花）.PNG</b></span>
+                <button class="btn btn-start" style="width:auto; padding:7px 24px; margin:0;" onclick="closeAutomationModal()">完成並儲存</button>
             </div>
         </div>
     </div>
@@ -2205,12 +2390,20 @@
                     ddiBadge = '<span style="background:#f1f5f9; color:#475569; padding:1px 6px; border-radius:4px; font-size:9.5px; font-weight:700;">⚪ 連線時自動檢查 DDI</span>';
                 }
 
+                let batBadge = '';
+                if (d.battery_level !== null && d.battery_level !== undefined) {
+                    let chgIcon = d.is_charging ? '⚡' : '🔋';
+                    let tempStr = (d.temperature_c !== null && d.temperature_c !== undefined) ? ` · 🌡️${d.temperature_c}°C` : '';
+                    batBadge = `<span style="background:#f0fdf4; color:#166534; padding:1px 6px; border-radius:4px; font-size:9.5px; font-weight:700;">${chgIcon} ${d.battery_level}%${tempStr}</span>`;
+                }
+
                 html += `
                 <div class="device-item">
                     <div>
                         <div style="font-weight:bold;">${escapeHtml(d.name)} <span class="badge-conn ${connClass}">${escapeHtml(d.connection)}</span></div>
-                        <div style="display:flex; align-items:center; gap:5px; margin-top:2px;">
+                        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-top:2px;">
                             ${ddiBadge}
+                            ${batBadge}
                             <span style="font-size:10px; color:#888; font-family:monospace;">${escapeHtml(shortUdid)}</span>
                         </div>
                     </div>
@@ -2357,6 +2550,9 @@
                 document.getElementById('sim-status').style.color = (isReturningHome || isConnecting) ? '#ff9500' : (isSimulating ? '#34c759' : '#8e8e93');
                 document.getElementById('connected-count').innerText = connectedUdids.length > 0 ? '已連線 (長連接保持)' : (isConnecting ? '正在配對與掛載服務...' : '未連線');
                 document.getElementById('dist-info').innerText = data.distance_from_origin + ' m';
+                if (data.automation) {
+                    syncAutomationRuntimeUI(data.automation);
+                }
                 
                 let swManual = document.getElementById('sw-manual-mode');
                 let panelManual = document.getElementById('manual-remote-panel');
@@ -2733,6 +2929,225 @@
                 manualMove(dx / len, dy / len, 0.5);
             }
         }, 500);
+
+        // --- ⚙️ 皮克敏自動化守護與遠端操作前端控制 ---
+        let automationSettingsLoaded = false;
+
+        async function openAutomationModal() {
+            document.getElementById('automation-modal').style.display = 'flex';
+            try {
+                let res = await fetch('/api/automation/status');
+                if (res.ok) {
+                    let data = await res.json();
+                    syncAutomationSettingsControls(data.settings || {});
+                    syncAutomationRuntimeUI(data);
+                }
+            } catch (e) {}
+        }
+
+        function closeAutomationModal(e) {
+            if (e && e.target !== document.getElementById('automation-modal')) return;
+            document.getElementById('automation-modal').style.display = 'none';
+        }
+
+        function syncAutomationSettingsControls(s) {
+            if (!s) return;
+            document.getElementById('auto-sw-low-bat').checked = Boolean(s.low_battery_stop);
+            document.getElementById('auto-input-low-bat').value = s.low_battery_threshold ?? 20;
+            document.getElementById('auto-sw-overheat').checked = s.overheat_notify !== false;
+            document.getElementById('auto-input-overheat').value = s.overheat_threshold_c ?? 40.0;
+            document.getElementById('auto-sw-overheat-pause').checked = Boolean(s.overheat_auto_pause);
+            document.getElementById('auto-sw-crash-pause').checked = s.crash_auto_pause !== false;
+            document.getElementById('auto-sw-crash-restart').checked = Boolean(s.crash_auto_restart);
+            document.getElementById('auto-sw-screen').checked = Boolean(s.screen_analysis_enabled);
+            document.getElementById('auto-sw-nav-map').checked = s.auto_navigate_to_map !== false;
+            document.getElementById('auto-sw-coin-stop').checked = Boolean(s.coin_limit_auto_stop);
+            document.getElementById('auto-input-coin-kw').value = s.coin_limit_keywords ?? '上限,已達,已滿,今日上限,獲得上限';
+            document.getElementById('auto-input-flower-target').value = s.flower_limit_target ?? 15000;
+            automationSettingsLoaded = true;
+        }
+
+        function syncAutomationRuntimeUI(auto) {
+            if (!auto) return;
+            if (!automationSettingsLoaded && auto.settings) {
+                syncAutomationSettingsControls(auto.settings);
+            }
+
+            let batStr = (auto.battery_level !== null && auto.battery_level !== undefined)
+                ? `${auto.is_charging ? '⚡' : '🔋'} ${auto.battery_level}%`
+                : '🔋 --%';
+            let tempStr = (auto.temperature_c !== null && auto.temperature_c !== undefined)
+                ? `🌡️ ${auto.temperature_c}°C`
+                : '🌡️ --°C';
+            let hwPill = document.getElementById('hw-telemetry-pill');
+            if (hwPill) {
+                hwPill.innerText = `${batStr} · ${tempStr}`;
+                hwPill.style.color = (auto.temperature_c && auto.temperature_c >= 40) ? '#dc2626' : '#334155';
+            }
+
+            let fgBadge = document.getElementById('pikmin-fg-badge');
+            let statusLabel = auto.pikmin_status_label || '⚪ 尚未連線';
+            if (fgBadge) {
+                fgBadge.innerText = statusLabel;
+                fgBadge.style.color = auto.pikmin_foreground === true
+                    ? '#16a34a'
+                    : (auto.pikmin_running === false ? '#dc2626' : '#d97706');
+            }
+
+            let modalAppState = document.getElementById('auto-modal-app-state');
+            if (modalAppState) modalAppState.innerText = statusLabel;
+            let modalScreenState = document.getElementById('auto-modal-screen-state');
+            if (modalScreenState) modalScreenState.innerText = auto.screen_state_label || '尚未擷取';
+
+            let flStr = (auto.detected_flowers !== null && auto.detected_flowers !== undefined) ? auto.detected_flowers.toLocaleString() : '--';
+            let coinStr = (auto.detected_coins !== null && auto.detected_coins !== undefined) ? auto.detected_coins : '--';
+            let limitTag = auto.coin_limit_reached ? ' (💰已達上限!)' : '';
+            let flCoinEl = document.getElementById('auto-modal-flower-coin');
+            if (flCoinEl) flCoinEl.innerText = `🌼 ${flStr} 朵 / 🪙 ${coinStr} 枚${limitTag}`;
+
+            let ocrEl = document.getElementById('auto-modal-ocr-text');
+            if (ocrEl) ocrEl.innerText = auto.last_ocr_banner_text || '--';
+
+            let actEl = document.getElementById('auto-modal-last-action');
+            if (actEl) actEl.innerText = auto.last_action_msg || '待命';
+
+            let timeEl = document.getElementById('auto-last-check-time');
+            if (timeEl && auto.last_check_time) timeEl.innerText = `更新: ${auto.last_check_time}`;
+
+            if (Array.isArray(auto.reference_images_loaded) && auto.reference_images_loaded.length > 0) {
+                let refEl = document.getElementById('auto-ref-loaded-label');
+                if (refEl) refEl.innerText = auto.reference_images_loaded.join(', ');
+            }
+
+            if (auto.last_screenshot_b64) {
+                let imgEl = document.getElementById('auto-screen-preview-img');
+                let phEl = document.getElementById('auto-screen-placeholder');
+                if (imgEl && phEl) {
+                    imgEl.src = auto.last_screenshot_b64;
+                    imgEl.style.display = 'block';
+                    phEl.style.display = 'none';
+                }
+            }
+        }
+
+        async function saveAutomationSettings() {
+            let payload = {
+                low_battery_stop: document.getElementById('auto-sw-low-bat').checked,
+                low_battery_threshold: parseInt(document.getElementById('auto-input-low-bat').value, 10) || 20,
+                overheat_notify: document.getElementById('auto-sw-overheat').checked,
+                overheat_threshold_c: parseFloat(document.getElementById('auto-input-overheat').value) || 40.0,
+                overheat_auto_pause: document.getElementById('auto-sw-overheat-pause').checked,
+                crash_auto_pause: document.getElementById('auto-sw-crash-pause').checked,
+                crash_auto_restart: document.getElementById('auto-sw-crash-restart').checked,
+                screen_analysis_enabled: document.getElementById('auto-sw-screen').checked,
+                auto_navigate_to_map: document.getElementById('auto-sw-nav-map').checked,
+                coin_limit_auto_stop: document.getElementById('auto-sw-coin-stop').checked,
+                coin_limit_keywords: document.getElementById('auto-input-coin-kw').value.trim(),
+                flower_limit_target: parseInt(document.getElementById('auto-input-flower-target').value, 10) || 0
+            };
+            try {
+                let res = await fetch('/api/automation/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    let data = await res.json();
+                    if (data.automation) syncAutomationRuntimeUI(data.automation);
+                    showToast('✅ 自動化守護設定已儲存');
+                }
+            } catch (e) {
+                showToast('儲存自動化設定失敗', true);
+            }
+        }
+
+        async function triggerInspectScreenNow(btnEl) {
+            if (!isSimulating) {
+                showToast('⚠️ 請先連線 iOS 裝置後再執行畫面擷取分析', true);
+                return;
+            }
+            let origText = btnEl ? btnEl.innerText : '📸 立即擷取分析';
+            if (btnEl) { btnEl.disabled = true; btnEl.innerText = '擷取辨識中...'; }
+            try {
+                let res = await fetch('/api/automation/inspect-now', { method: 'POST' });
+                let data = await res.json();
+                if (res.ok) {
+                    syncAutomationRuntimeUI(data);
+                    showToast(`📸 畫面分析完成：${data.screen_state_label || '已更新'}`);
+                } else {
+                    showToast(data.detail || '畫面擷取失敗', true);
+                }
+            } catch (e) {
+                showToast('畫面擷取請求失敗', true);
+            } finally {
+                if (btnEl) { btnEl.disabled = false; btnEl.innerText = origText; }
+            }
+        }
+
+        async function triggerLaunchPikmin() {
+            if (!isSimulating) {
+                showToast('⚠️ 請先連線 iOS 裝置', true);
+                return;
+            }
+            showToast('🚀 正在向 iPhone 發送喚醒皮克敏 App 指令...');
+            try {
+                let res = await fetch('/api/automation/launch-pikmin', { method: 'POST' });
+                let data = await res.json();
+                if (res.ok) {
+                    showToast('✅ 已在手機端喚醒啟動皮克敏 App！');
+                } else {
+                    showToast(data.detail || '啟動皮克敏失敗', true);
+                }
+            } catch (e) {
+                showToast('啟動皮克敏請求失敗', true);
+            }
+        }
+
+        async function triggerManualStopPlanting() {
+            if (!isSimulating) {
+                showToast('⚠️ 請先連線 iOS 裝置', true);
+                return;
+            }
+            showToast('⏹️ 正在執行遊戲內「停止種花」自動點擊序列...');
+            try {
+                let res = await fetch('/api/automation/stop-planting', { method: 'POST' });
+                let data = await res.json();
+                if (res.ok) {
+                    if (data.automation) syncAutomationRuntimeUI(data.automation);
+                    showToast('✅ 已在遊戲內點擊停止種花按鈕！');
+                } else {
+                    showToast(data.detail || '執行停止種花點擊失敗', true);
+                }
+            } catch (e) {
+                showToast('執行停止種花請求失敗', true);
+            }
+        }
+
+        async function onRemotePreviewClick(event) {
+            if (!isSimulating) return;
+            let img = event.currentTarget;
+            let rect = img.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
+            let normX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+            let normY = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+            showToast(`👆 正在傳送遠端點擊 (${Math.round(normX * 100)}%, ${Math.round(normY * 100)}%)...`);
+            try {
+                let res = await fetch('/api/automation/tap', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ norm_x: normX, norm_y: normY, refresh_screen: true })
+                });
+                let data = await res.json();
+                if (res.ok) {
+                    if (data.automation) syncAutomationRuntimeUI(data.automation);
+                    showToast('✅ 遠端點擊已送達並更新畫面！');
+                } else {
+                    showToast(data.detail || '遠端點擊失敗', true);
+                }
+            } catch (e) {
+                showToast('遠端點擊請求失敗', true);
+            }
+        }
 
         initPage();
         setInterval(fetchStatus, 1000);
