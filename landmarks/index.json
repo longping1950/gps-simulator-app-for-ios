@@ -1,0 +1,36 @@
+{
+  "updated_at": "2026-11-08 12:00:00",
+  "repo": "longping1950/gps-simulator-app-for-ios",
+  "categories": [
+    {
+      "id": "cloud_kaohsiung_hotspots",
+      "name": "高雄熱門種花與大花景點",
+      "color": "#ec4899",
+      "tags": ["高雄", "熱門", "公園", "百貨"],
+      "updated_at": "2026-11-08",
+      "landmarks": [
+        {
+          "id": "lm_kh_1",
+          "name": "夢時代購物中心",
+          "lat": 22.59515,
+          "lng": 120.30692,
+          "desc": "高雄市前鎮區中華五路789號"
+        },
+        {
+          "id": "lm_kh_2",
+          "name": "中央公園 (城市光廊)",
+          "lat": 22.62168,
+          "lng": 120.30058,
+          "desc": "適合東西向繞圈種花"
+        },
+        {
+          "id": "lm_kh_3",
+          "name": "駁二藝術特區大勇倉庫",
+          "lat": 22.62001,
+          "lng": 120.28162,
+          "desc": "密集大花與蘑菇區"
+        }
+      ]
+    }
+  ]
+}

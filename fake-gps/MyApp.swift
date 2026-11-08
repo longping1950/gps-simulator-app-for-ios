@@ -3,6 +3,7 @@ import AppKit
 import UserNotifications
 import Network
 import Vision
+import CoreML
 
 @main
 struct iOSLocationControllerApp: App {
@@ -30,7 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
     private var isConfirmedTerminating = false
 
     // 🎯 取得作業系統當前可用的空閒 Port
-    static func findFreePort() -> Int {
+    nonisolated static func findFreePort() -> Int {
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
         addr.sin_family = sa_family_t(AF_INET)
@@ -45,7 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         memcpy(&bindAddr, &addr, Int(addr.sin_len))
 
         if Darwin.bind(sock, &bindAddr, socklen_t(addr.sin_len)) == 0 {
-            var len = socklen_t(addr.sin_len)
+            var len = socklen_t(MemoryLayout<sockaddr_in>.stride)
             if Darwin.getsockname(sock, &bindAddr, &len) == 0 {
                 var actualAddr = sockaddr_in()
                 memcpy(&actualAddr, &bindAddr, Int(len))
@@ -72,34 +73,112 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         }
     }
 
-    // 🎯 原生 macOS Vision OCR 文字辨識（供 Python 自動化模組呼叫，精準辨識種花數量與金幣上限文字）
-    static func performNativeOCR(imagePath: String) -> [String: Any] {
-        guard let nsImage = NSImage(contentsOfFile: imagePath),
-              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    // 🎯 單張 CGImage 執行 Vision OCR (使用 macOS 14+ MLComputeDevice.cpu 與多 Revision 自動降級，徹底避開 E5 模型錯誤與棄用警告)
+    nonisolated private static func recognizeCGImage(_ cgImg: CGImage) -> ([VNRecognizedTextObservation], String?) {
+        let configs: [(VNRequestTextRecognitionLevel, Bool, Int?)] = [
+            (.accurate, true, nil),
+            (.accurate, false, nil),
+            (.accurate, true, VNRecognizeTextRequestRevision3),
+            (.fast, true, nil)
+        ]
+        var lastErr: String? = nil
+
+        let cpuComputeDevice = MLComputeDevice.allComputeDevices.first { dev in
+            if case .cpu = dev { return true }
+            return false
+        }
+
+        for (level, cpuOnly, rev) in configs {
+            let req = VNRecognizeTextRequest()
+            req.recognitionLevel = level
+            if cpuOnly, let cpuDev = cpuComputeDevice {
+                if let supportedStages = try? req.supportedComputeStageDevices {
+                    for stage in supportedStages.keys {
+                        req.setComputeDevice(cpuDev, for: stage)
+                    }
+                }
+            }
+            if let rev = rev {
+                req.revision = rev
+            }
+            req.recognitionLanguages = ["zh-Hant", "zh-Hans", "en-US"]
+            req.usesLanguageCorrection = true
+
+            let handler = VNImageRequestHandler(cgImage: cgImg, options: [:])
+            do {
+                try handler.perform([req])
+                if let results = req.results, !results.isEmpty {
+                    return (results, nil)
+                }
+            } catch {
+                lastErr = error.localizedDescription
+            }
+        }
+        return ([], lastErr)
+    }
+
+    // 🎯 原生 macOS Vision OCR 文字辨識（nonisolated 背景執行，同時針對頂部種花橫幅裁切放大辨識）
+    nonisolated static func performNativeOCR(imagePath: String) -> [String: Any] {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let url = URL(fileURLWithPath: imagePath)
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
             return ["ok": false, "error": "無法載入圖片: \(imagePath)", "texts": [], "banner_texts": []]
         }
 
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["zh-Hant", "zh-Hans", "en-US"]
-        request.usesLanguageCorrection = true
+        let imgW = Double(cgImage.width)
+        let imgH = Double(cgImage.height)
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        do {
-            try handler.perform([request])
-            var allTexts: [String] = []
-            var bannerTexts: [String] = []
-            var items: [[String: Any]] = []
+        var allTexts: [String] = []
+        var bannerTexts: [String] = []
+        var items: [[String: Any]] = []
+        var errMsg: String? = nil
 
-            for obs in request.results ?? [] {
-                if let candidate = obs.topCandidates(1).first {
+        // 1. 優先針對頂部種花橫幅區 (y = 0.11 ~ 0.25) 獨立裁切辨識，速度快且小字/標點更精準
+        let bannerRect = CGRect(
+            x: Int(imgW * 0.02),
+            y: Int(imgH * 0.11),
+            width: Int(imgW * 0.96),
+            height: Int(imgH * 0.14)
+        )
+        if let bannerCrop = cgImage.cropping(to: bannerRect) {
+            let (bObs, bErr) = recognizeCGImage(bannerCrop)
+            if let bErr = bErr { errMsg = bErr }
+            for obs in bObs {
+                if let cand = obs.topCandidates(1).first {
+                    let b = obs.boundingBox
+                    // 換算回全圖的正規化座標 (0.0 ~ 1.0)
+                    let cx = 0.02 + Double(b.origin.x + b.width / 2.0) * 0.96
+                    let cy = 0.11 + Double(1.0 - (b.origin.y + b.height / 2.0)) * 0.14
+                    let text = cand.string
+                    bannerTexts.append(text)
+                    allTexts.append(text)
+                    items.append([
+                        "text": text,
+                        "x": (cx * 1000).rounded() / 1000,
+                        "y": (cy * 1000).rounded() / 1000,
+                        "w": (Double(b.width) * 0.96 * 1000).rounded() / 1000,
+                        "h": (Double(b.height) * 0.14 * 1000).rounded() / 1000,
+                        "confidence": Double(cand.confidence),
+                        "source": "banner_crop"
+                    ])
+                }
+            }
+        }
+
+        // 2. 若橫幅沒有抓到「種植 / 獲得 / 上限」，再對全圖執行一次辨識以支援主頁或子頁面文字判斷
+        let bannerJoined = bannerTexts.joined(separator: " ")
+        if !bannerJoined.contains("種植") && !bannerJoined.contains("獲得") && !bannerJoined.contains("上限") {
+            let (fullObs, fErr) = recognizeCGImage(cgImage)
+            if let fErr = fErr, errMsg == nil { errMsg = fErr }
+            for obs in fullObs {
+                if let cand = obs.topCandidates(1).first {
                     let b = obs.boundingBox
                     let cx = Double(b.origin.x + b.width / 2.0)
                     let cy = Double(1.0 - (b.origin.y + b.height / 2.0))
-                    let text = candidate.string
+                    let text = cand.string
                     allTexts.append(text)
-                    // 種花頂部橫幅區域 (y 約在 0.11 ~ 0.25 之間)
-                    if cy >= 0.11 && cy <= 0.25 {
+                    if cy >= 0.11 && cy <= 0.25 && !bannerTexts.contains(text) {
                         bannerTexts.append(text)
                     }
                     items.append([
@@ -107,21 +186,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
                         "x": (cx * 1000).rounded() / 1000,
                         "y": (cy * 1000).rounded() / 1000,
                         "w": (Double(b.width) * 1000).rounded() / 1000,
-                        "h": (Double(b.height) * 1000).rounded() / 1000
+                        "h": (Double(b.height) * 1000).rounded() / 1000,
+                        "confidence": Double(cand.confidence),
+                        "source": "full_image"
                     ])
                 }
             }
-            return [
-                "ok": true,
-                "texts": allTexts,
-                "banner_texts": bannerTexts,
-                "full_text": allTexts.joined(separator: " | "),
-                "banner_full_text": bannerTexts.joined(separator: " | "),
-                "items": items
-            ]
-        } catch {
-            return ["ok": false, "error": error.localizedDescription, "texts": [], "banner_texts": []]
         }
+
+        let elapsedMs = Int(((CFAbsoluteTimeGetCurrent() - t0) * 1000).rounded())
+        return [
+            "ok": !allTexts.isEmpty || errMsg == nil,
+            "error": errMsg ?? "",
+            "elapsed_ms": elapsedMs,
+            "image_width": Int(imgW),
+            "image_height": Int(imgH),
+            "texts": allTexts,
+            "banner_texts": bannerTexts,
+            "full_text": allTexts.joined(separator: " | "),
+            "banner_full_text": bannerTexts.joined(separator: " | "),
+            "items": items
+        ]
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -145,7 +230,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         return true
     }
 
-    // 🎯 統一處理視窗關閉與 Cmd+Q 退出：支援「依設定速度平滑返航」或「立即清除模擬定位並退出」
+    // 🎯 統一處理視窗關閉與 Cmd+Q 退出：支援「依 60 km/h 平滑返航」或「立即清除模擬定位並退出」
     func confirmAndHandleExit() -> Bool {
         if isConfirmedTerminating {
             return true
@@ -177,10 +262,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
 
         let alert = NSAlert()
         alert.messageText = "確定要結束並關閉程式嗎？"
-        alert.informativeText = "目前 iPhone 仍處於虛擬定位狀態。您可以選擇立即還原真實 GPS 定位並退出，或在畫面中啟動「依設定速度平滑返航」。"
+        alert.informativeText = "目前仍有 iPhone 處於虛擬定位狀態。您可以選擇立即還原真實 GPS 定位並退出，或讓所有裝置以 60 km/h 平滑返航。"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "立即還原真實定位並退出")
-        alert.addButton(withTitle: "留在本頁並依設定速度返航")
+        alert.addButton(withTitle: "留在本頁並啟動 60 km/h 平滑返航")
         alert.addButton(withTitle: "取消")
 
         let response = alert.runModal()
@@ -241,7 +326,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         do {
             notifyListener = try NWListener(using: .tcp, on: port)
             notifyListener?.newConnectionHandler = { connection in
-                connection.start(queue: .global(qos: .userInitiated))
+                let workerQueue = DispatchQueue.global(qos: .userInitiated)
+                connection.start(queue: workerQueue)
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
                     var responseBody = "OK"
                     var contentType = "text/plain; charset=utf-8"
@@ -279,7 +365,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
                     }))
                 }
             }
-            notifyListener?.start(queue: .main)
+            notifyListener?.start(queue: .global(qos: .userInitiated))
             print("🔔 原生通知與 OCR 監聽端點已啟動於 Port: \(AppDelegate.notifyPort)")
         } catch {
             print("❌ 通知監聽端點啟動失敗: \(error)")
@@ -327,7 +413,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNoti
         ]
         process.currentDirectoryURL = URL(fileURLWithPath: resourcePath)
 
-        // 🎯 隔離使用者外部環境變數污染 (避免外部 Homebrew/Anaconda 的 PYTHONPATH 干擾內嵌環境)
+        // 🎯 隔離使用者外部環境變數污染
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "PYTHONPATH")
         env.removeValue(forKey: "PYTHONHOME")

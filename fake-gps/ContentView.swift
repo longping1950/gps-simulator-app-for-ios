@@ -1,5 +1,7 @@
 import SwiftUI
 import WebKit
+import AppKit
+import UniformTypeIdentifiers
 import CoreLocation
 import Combine
 import UserNotifications
@@ -58,6 +60,65 @@ class WebViewModel: NSObject, ObservableObject, WKUIDelegate, WKNavigationDelega
         decisionHandler(.grant)
     }
 
+    // 🎯 支援 JavaScript alert() 原生彈窗
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "系統提示"
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "確定")
+        alert.runModal()
+        completionHandler()
+    }
+
+    // 🎯 支援 JavaScript confirm() 原生確認彈窗
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "操作確認"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "確定")
+        alert.addButton(withTitle: "取消")
+        let res = alert.runModal()
+        completionHandler(res == .alertFirstButtonReturn)
+    }
+
+    // 🎯 支援 JavaScript prompt() 原生文字輸入彈窗 (解決 WKWebView 預設忽略 prompt 導致無法輸入路標/路線名稱的問題)
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = prompt
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "確定")
+        alert.addButton(withTitle: "取消")
+
+        let inputField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        inputField.stringValue = defaultText ?? ""
+        alert.accessoryView = inputField
+        alert.window.initialFirstResponder = inputField
+
+        let res = alert.runModal()
+        if res == .alertFirstButtonReturn {
+            completionHandler(inputField.stringValue)
+        } else {
+            completionHandler(nil)
+        }
+    }
+
+    // 🎯 支援 HTML <input type="file"> 原生檔案選擇器 (解決 WKWebView 點擊匯入無反應或讀不到檔案的問題)
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = parameters.allowsDirectories
+        openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        openPanel.prompt = "選擇匯入檔案"
+        openPanel.message = "請選擇要匯入的 GPX / JSON / GeoJSON / CSV 檔案"
+        if openPanel.runModal() == .OK {
+            completionHandler(openPanel.urls)
+        } else {
+            completionHandler(nil)
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         self.webView = webView
         injectLocation()
@@ -78,13 +139,55 @@ class WebViewModel: NSObject, ObservableObject, WKUIDelegate, WKNavigationDelega
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    // 🎯 接收來自前端發出的原生通知指令
+    // 🎯 接收來自前端發出的原生通知與原生檔案儲存/開啟指令
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "nativeNotify", let body = message.body as? [String: String] {
             let title = body["title"] ?? "SIM-GPS"
             let subtitle = body["subtitle"] ?? ""
             let msg = body["message"] ?? ""
             AppDelegate.sendAppNotification(title: title, subtitle: subtitle, body: msg)
+        } else if message.name == "nativeFileBridge", let body = message.body as? [String: Any] {
+            let action = body["action"] as? String ?? ""
+            if action == "saveFile" {
+                let filename = body["filename"] as? String ?? "export.json"
+                let content = body["content"] as? String ?? ""
+                DispatchQueue.main.async {
+                    NSApp.activate(ignoringOtherApps: true)
+                    let savePanel = NSSavePanel()
+                    savePanel.title = "選擇匯出檔案儲存位置"
+                    savePanel.message = "請選擇要匯出儲存的資料夾位置與檔案名稱"
+                    savePanel.nameFieldStringValue = filename
+                    savePanel.canCreateDirectories = true
+                    savePanel.isExtensionHidden = false
+                    savePanel.prompt = "匯出儲存"
+                    let response = savePanel.runModal()
+                    if response == .OK, let targetURL = savePanel.url {
+                        do {
+                            try content.write(to: targetURL, atomically: true, encoding: .utf8)
+                            let safePath = targetURL.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+                            self.webView?.evaluateJavaScript("if(window.onNativeFileSaved) window.onNativeFileSaved(true, '\(safePath)');", completionHandler: nil)
+                        } catch {
+                            let errStr = error.localizedDescription.replacingOccurrences(of: "'", with: "\\'")
+                            self.webView?.evaluateJavaScript("if(window.onNativeFileSaved) window.onNativeFileSaved(false, '\(errStr)');", completionHandler: nil)
+                        }
+                    } else {
+                        self.webView?.evaluateJavaScript("if(window.onNativeFileSaved) window.onNativeFileSaved(false, '__CANCELLED__');", completionHandler: nil)
+                    }
+                }
+            } else if action == "restartBackend" {
+                DispatchQueue.main.async {
+                    AppDelegate.shared?.startBackendServer()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        if let newURL = URL(string: "http://127.0.0.1:\(AppDelegate.serverPort)/?token=\(AppDelegate.sessionToken)") {
+                            self.webView?.load(URLRequest(url: newURL))
+                        }
+                    }
+                }
+            } else if action == "openExternalUrl", let urlStr = body["url"] as? String, let extURL = URL(string: urlStr) {
+                DispatchQueue.main.async {
+                    NSWorkspace.shared.open(extURL)
+                }
+            }
         }
     }
 }
@@ -100,6 +203,7 @@ struct WebView: NSViewRepresentable {
 
         let userContentController = WKUserContentController()
         userContentController.add(model, name: "nativeNotify")
+        userContentController.add(model, name: "nativeFileBridge")
 
         let config = WKWebViewConfiguration()
         config.userContentController = userContentController
@@ -175,7 +279,9 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            checkServerReady()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                checkServerReady()
+            }
         }
     }
 

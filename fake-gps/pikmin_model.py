@@ -100,7 +100,7 @@ PIKMIN_TIERS: Dict[int, Dict[str, Any]] = {
     },
 }
 
-# 7 擇 1 模式定義：5 階段皮克敏 + 極速種花 18 km/h + 快速移動 800 km/h
+# 8 擇 1 模式定義：5 階段皮克敏 + 極速種花 18 km/h + 高速移動 60 km/h + 快速移動 800 km/h
 SPEED_MODES: Dict[str, Dict[str, Any]] = {
     "tier_1": {"mode": "tier_1", "pikmin_tier": 1, "speed_kmh": 12.0, "max_cap_kmh": 12.0, "label": "1～9隻 (12 km/h)"},
     "tier_2": {"mode": "tier_2", "pikmin_tier": 2, "speed_kmh": 14.0, "max_cap_kmh": 16.5, "label": "10～19隻 (14 km/h)"},
@@ -108,7 +108,8 @@ SPEED_MODES: Dict[str, Dict[str, Any]] = {
     "tier_4": {"mode": "tier_4", "pikmin_tier": 4, "speed_kmh": 16.5, "max_cap_kmh": 18.0, "label": "30～39隻 (16.5 km/h 最佳花瓣)"},
     "tier_5": {"mode": "tier_5", "pikmin_tier": 5, "speed_kmh": 17.0, "max_cap_kmh": 18.0, "label": "40滿編 (17.0 km/h 最高產花)"},
     "extreme_18": {"mode": "extreme_18", "pikmin_tier": 5, "speed_kmh": 18.0, "max_cap_kmh": 18.0, "label": "⚡ 極速種花 (18.0 km/h)"},
-    "fast_800": {"mode": "fast_800", "pikmin_tier": 5, "speed_kmh": 800.0, "max_cap_kmh": 800.0, "label": "✈️ 快速移動 (800 km/h)"},
+    "fast_60": {"mode": "fast_60", "pikmin_tier": 5, "speed_kmh": 60.0, "max_cap_kmh": 2000.0, "label": "🚗 高速移動 (60 km/h)"},
+    "fast_800": {"mode": "fast_800", "pikmin_tier": 5, "speed_kmh": 800.0, "max_cap_kmh": 2000.0, "label": "✈️ 快速移動 (800 km/h)"},
 }
 
 

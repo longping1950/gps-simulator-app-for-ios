@@ -1,0 +1,27 @@
+{
+  "version": "1.3.1",
+  "base_app_version": "1.3",
+  "update_type": "minor",
+  "update_type_label": "小更新 (支援免重裝熱更新)",
+  "release_date": "2026-11-08",
+  "title": "v1.3.1 雲端路標庫、熱更新與操作體驗升級",
+  "changelog": [
+    "新增 GitHub 版本檢查與小版本 / Bug 修復一鍵熱更新機制（支援跳過指定版本）",
+    "新增 GitHub 雲端路標庫：支援在 App 內搜尋雲端路標、一鍵匯入與將本機路標上傳至 GitHub",
+    "優化地圖搜尋：以地圖中心優先搜尋並保留搜尋結果，點擊搜尋框即展開歷史結果",
+    "優化中文輸入法體驗：文字輸入框改為短時間連按兩次 Enter 才觸發確認",
+    "修正連線後皮克敏前景判定：改為延後多點確認並結合 Sysmontap CPU 負載，消除開著遊戲誤跳視窗問題"
+  ],
+  "hot_update_supported": true,
+  "hot_update_files": [
+    "fake-gps/app.py",
+    "fake-gps/gps_tunnel.py",
+    "fake-gps/pikmin_automation.py",
+    "fake-gps/pikmin_model.py",
+    "fake-gps/debug_center.py",
+    "fake-gps/map_layers.py",
+    "web/index.html"
+  ],
+  "repo_owner": "longping1950",
+  "repo_name": "gps-simulator-app-for-ios"
+}
