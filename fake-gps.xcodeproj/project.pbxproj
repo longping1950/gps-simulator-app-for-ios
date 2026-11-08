@@ -12,7 +12,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		000000000000000000000120 /* fake-gps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "fake-gps.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000120 /* sim-gps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "sim-gps.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B5EBC39308E577100EC3E3D /* EmbeddedPython */ = {isa = PBXFileReference; lastKnownFileType = folder; path = EmbeddedPython; sourceTree = "<group>"; };
 		6B5EBC65308E975C00EC3E3D /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; path = web; sourceTree = "<group>"; };
 		6B9E55E230A074D200B370EF /* Untitled.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Untitled.swift; sourceTree = "<group>"; };
@@ -68,7 +68,7 @@
 		000000000000000000000020 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				000000000000000000000120 /* fake-gps.app */,
+				000000000000000000000120 /* sim-gps.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -90,8 +90,8 @@
 				000000000000000000000010 /* fake-gps */,
 			);
 			name = "fake-gps";
-			productName = MyApp;
-			productReference = 000000000000000000000120 /* fake-gps.app */;
+			productName = "sim-gps";
+			productReference = 000000000000000000000120 /* sim-gps.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -315,8 +315,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).fake-gps";
+				PRODUCT_NAME = "sim-gps";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -366,8 +366,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
 				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).fake-gps";
+				PRODUCT_NAME = "sim-gps";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
