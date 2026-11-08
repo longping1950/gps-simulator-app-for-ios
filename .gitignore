@@ -5,3 +5,4 @@ build/
 DerivedData/
 __pycache__/
 *.pyc
+/*.png

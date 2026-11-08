@@ -15,6 +15,7 @@
 		000000000000000000000120 /* fake-gps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "fake-gps.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B5EBC39308E577100EC3E3D /* EmbeddedPython */ = {isa = PBXFileReference; lastKnownFileType = folder; path = EmbeddedPython; sourceTree = "<group>"; };
 		6B5EBC65308E975C00EC3E3D /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; path = web; sourceTree = "<group>"; };
+		6B9E55E230A074D200B370EF /* Untitled.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Untitled.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -56,6 +57,7 @@
 		000000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				6B9E55E230A074D200B370EF /* Untitled.swift */,
 				6B5EBC65308E975C00EC3E3D /* web */,
 				6B5EBC39308E577100EC3E3D /* EmbeddedPython */,
 				000000000000000000000010 /* fake-gps */,
