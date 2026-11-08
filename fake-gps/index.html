@@ -462,7 +462,7 @@
                 <h3 style="margin:0; font-size:14.5px;" id="left-panel-title">模擬控制台</h3>
             </div>
             <div class="collapse-hide" style="display:flex; gap:4px; align-items:center;">
-                <button id="btn-version-badge" class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:10.5px; color:#047857; border-color:#a7f3d0; background:#ecfdf5; font-weight:700;" onclick="checkAppVersion(true)" title="點擊檢查 GitHub 最新版本與熱更新">🔄 v1.3.1</button>
+                <button id="btn-version-badge" class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:10.5px; color:#047857; border-color:#a7f3d0; background:#ecfdf5; font-weight:700;" onclick="checkAppVersion(true)" title="點擊檢查 GitHub Releases 最新版本與熱更新">🔄 v2.0</button>
                 <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:11px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff; font-weight:700;" onclick="openAutomationModal('default')" title="開啟皮克敏全域預設自動化設定 (各裝置也可於下方清單獨立設定)">⚙️ 設定</button>
                 <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:11px;" onclick="openGuide()">❓ 指引</button>
                 <button class="collapse-toggle-btn" title="收合控制台" onclick="togglePanel('left')">✕</button>
@@ -856,8 +856,8 @@
 
             <div style="margin:12px 0; font-size:12.5px; color:#334155;">
                 <div style="display:flex; justify-content:space-between; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; margin-bottom:10px;">
-                    <span>目前本機版本：<b id="ver-local-label" style="color:#475569;">v1.3.1</b></span>
-                    <span>GitHub 最新版本：<b id="ver-remote-label" style="color:#0284c7;">v1.3.1</b></span>
+                    <span>目前本機版本：<b id="ver-local-label" style="color:#475569;">v2.0</b></span>
+                    <span>GitHub Release 最新版：<b id="ver-remote-label" style="color:#0284c7;">v2.0</b></span>
                 </div>
                 <div id="ver-release-title" style="font-weight:800; font-size:13.5px; color:#0f172a; margin-bottom:6px;"></div>
                 <div id="ver-changelog-box" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; max-height:200px; overflow-y:auto; line-height:1.6; font-size:12px; color:#1e293b;"></div>
@@ -4789,7 +4789,7 @@
                 let data = await res.json();
                 latestVersionCheckData = data;
 
-                let localVer = data.local_version || '1.3.1';
+                let localVer = data.local_version || '2.0';
                 if (badgeBtn) {
                     if (data.has_update) {
                         badgeBtn.innerText = `🆕 v${data.remote_version} (${data.update_type_label || '有更新'})`;
@@ -4809,8 +4809,10 @@
                 } else if (manual) {
                     if (data.ok === false) {
                         showToast(`⚠️ 無法連線檢查版本 (目前本機版本 v${localVer})`, true);
+                    } else if (data.no_release_yet) {
+                        showToast(`ℹ️ GitHub 尚未發布任何 Release 版本 (目前本機版本 v${localVer})`);
                     } else {
-                        showToast(`✅ 目前已是最新版本 v${localVer}！`);
+                        showToast(`✅ 目前已是最新 Release 版本 v${localVer}！`);
                     }
                 }
             } catch (e) {
@@ -4820,8 +4822,8 @@
 
         function openVersionModal(data) {
             if (!data) return;
-            document.getElementById('ver-local-label').innerText = `v${data.local_version || '1.3.1'}`;
-            document.getElementById('ver-remote-label').innerText = `v${data.remote_version || data.local_version || '1.3.1'}`;
+            document.getElementById('ver-local-label').innerText = `v${data.local_version || '2.0'}`;
+            document.getElementById('ver-remote-label').innerText = `v${data.remote_version || data.local_version || '2.0'}`;
 
             let badge = document.getElementById('ver-modal-type-badge');
             let uType = data.update_type || 'minor';

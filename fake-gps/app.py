@@ -1853,6 +1853,7 @@ class SkipVersionRequest(BaseModel):
 
 class UploadLandmarkGitHubRequest(BaseModel):
     category_id: str
+    description: Optional[str] = None
     tags: Optional[List[str]] = None
     github_token: Optional[str] = None
 
@@ -1862,12 +1863,18 @@ async def verify_pikmin_foreground_delayed(req: Optional[AutomationTargetRequest
     """
     連線後延遲確認皮克敏是否在前景：
     連續進行 2 次採樣（間隔 2.0 秒），只要任一次偵測到在前景 (或 CPU >= 2.5% / uncertain) 即判定為在前景，
-    必須兩次皆明確判定不在前景才回傳 prompt_launch_pikmin=True 並發送通知，徹底避免開著遊戲卻誤跳視窗。
+    必須兩次皆明確判定不在前景才回傳 confirmed_not_foreground=True 並發送通知，徹底避免開著遊戲卻誤跳視窗。
     """
     target_udid = req.udid if req else None
     sess = gps_service.get_session(target_udid)
     if not sess or not sess.is_connected:
-        return {"ok": True, "connected": False, "pikmin_foreground": True, "prompt_launch_pikmin": False}
+        return {
+            "ok": True,
+            "connected": False,
+            "pikmin_foreground": True,
+            "confirmed_not_foreground": False,
+            "prompt_launch_pikmin": False,
+        }
 
     dev_label = getattr(sess, "device_name", None) or (sess.current_udid or target_udid or "")[:6]
 
@@ -1881,6 +1888,7 @@ async def verify_pikmin_foreground_delayed(req: Optional[AutomationTargetRequest
             "device_name": dev_label,
             "pikmin_running": bool(p1.get("running")),
             "pikmin_foreground": True,
+            "confirmed_not_foreground": False,
             "prompt_launch_pikmin": False,
             "cpu": p1.get("cpu", 0.0),
         }
@@ -1888,7 +1896,13 @@ async def verify_pikmin_foreground_delayed(req: Optional[AutomationTargetRequest
     # 若第一次顯示不在前景，等待 2.0 秒後進行第二次確認
     await asyncio.sleep(2.0)
     if not sess.is_connected:
-        return {"ok": True, "connected": False, "pikmin_foreground": True, "prompt_launch_pikmin": False}
+        return {
+            "ok": True,
+            "connected": False,
+            "pikmin_foreground": True,
+            "confirmed_not_foreground": False,
+            "prompt_launch_pikmin": False,
+        }
 
     p2 = await asyncio.to_thread(gps_service.query_pikmin_process_sync, target_udid, True)
     is_fg = bool(p2.get("foreground") is True or p2.get("foreground_uncertain") is True or (p2.get("cpu") or 0.0) >= 2.5)
@@ -1909,6 +1923,7 @@ async def verify_pikmin_foreground_delayed(req: Optional[AutomationTargetRequest
         "device_name": dev_label,
         "pikmin_running": is_running,
         "pikmin_foreground": is_fg,
+        "confirmed_not_foreground": not is_fg,
         "prompt_launch_pikmin": not is_fg,
         "cpu": p2.get("cpu", 0.0),
     }
@@ -1983,6 +1998,7 @@ async def api_upload_landmark_to_github(req: UploadLandmarkGitHubRequest):
         upload_landmark_category_to_github,
         APP_DIR,
         cat_copy,
+        description=req.description or "",
         github_token=saved_token,
     )
     return res
