@@ -260,6 +260,7 @@ state: Dict[str, Any] = {
     "actual_speed_kmh": 0.0,
     "is_cruising": False,
     "is_cruise_paused": False,
+    "suspended_cruise_task": False,
     "returning_to_loop_origin": False,
     "cruise_waypoints": [],
     "original_waypoints": [],
@@ -323,23 +324,36 @@ def _sync_global_return_and_cruise_flags() -> None:
     """
     同步多裝置狀態至全域旗標：
     - 只要還有一台裝置正在跟隨行程 (active_following)，行程就持續進行
-    - 當所有連線裝置皆進入返航或已斷線 (active_following == 0)，才停止巡航行程
+    - 若所有裝置因異常斷線正在自動重連 (is_reconnecting)，暫時掛起巡航並完整保留原任務進度，待重連成功後自動接續
+    - 僅當所有連線裝置皆進入返航或已徹底斷線 (非重連中)，才停止巡航行程
     """
     active_following = gps_service.get_active_following_sessions()
     returning_sessions = gps_service.get_returning_sessions()
 
     if len(active_following) == 0:
-        state["is_cruising"] = False
-        state["is_cruise_paused"] = False
-        state["returning_to_loop_origin"] = False
-        state["current_wp_index"] = 0
-        if len(returning_sessions) > 0:
-            state["is_returning_home"] = True
-            state["is_stopping"] = True
-        else:
+        if gps_service.is_reconnecting or gps_service.has_abnormal_disconnect:
+            if state["is_cruising"]:
+                state["suspended_cruise_task"] = True
+                state["is_cruising"] = False
             state["is_returning_home"] = False
             state["is_stopping"] = False
+        else:
+            state["is_cruising"] = False
+            state["is_cruise_paused"] = False
+            state["suspended_cruise_task"] = False
+            state["returning_to_loop_origin"] = False
+            state["current_wp_index"] = 0
+            if len(returning_sessions) > 0:
+                state["is_returning_home"] = True
+                state["is_stopping"] = True
+            else:
+                state["is_returning_home"] = False
+                state["is_stopping"] = False
     else:
+        if state.get("suspended_cruise_task") and state.get("cruise_waypoints"):
+            state["is_cruising"] = True
+            state["is_cruise_paused"] = False
+            state["suspended_cruise_task"] = False
         state["is_returning_home"] = False
         state["is_stopping"] = False
 
@@ -776,11 +790,21 @@ class StartCruiseRequest(BaseModel):
     loop_count: int
     resume: Optional[bool] = True
     reset: Optional[bool] = False
+    start_index: Optional[int] = None
 
 
 class SyncWaypointsRequest(BaseModel):
     waypoints: List[dict]
     removed_index: Optional[int] = None
+    set_next_index: Optional[int] = None
+
+
+class SetCruiseTargetRequest(BaseModel):
+    wp_index: int
+    waypoints: Optional[List[dict]] = None
+    loop_mode: Optional[str] = None
+    loop_count: Optional[int] = None
+    auto_start: Optional[bool] = False
 
 
 class SettingsRequest(BaseModel):
@@ -916,14 +940,17 @@ async def get_init_data():
 async def get_device_list():
     devs = await scan_ios_devices_async(gps_service)
     connected_list = gps_service.connected_udids
+    reconnecting_list = gps_service.reconnecting_udids
     returning_list = [
         s.current_udid for s in gps_service.get_returning_sessions() if s.current_udid
     ]
     return {
         "devices": devs,
         "connected_udids": connected_list,
+        "reconnecting_udids": reconnecting_list,
         "returning_udids": returning_list,
         "is_simulating": gps_service.is_connected,
+        "is_reconnecting": gps_service.is_reconnecting,
     }
 
 
@@ -964,6 +991,9 @@ async def get_status():
             "udid": u,
             "is_connected": s.is_connected,
             "is_connecting": s.is_connecting,
+            "is_reconnecting": s.is_reconnecting,
+            "reconnect_attempt": s.reconnect_attempt,
+            "max_reconnect_attempts": s.max_reconnect_attempts,
             "connect_stage": s.connect_stage,
             "is_returning_home": s.is_returning_home,
             "return_speed_kmh": RETURN_HOME_SPEED_KMH if s.is_returning_home else 0.0,
@@ -989,11 +1019,16 @@ async def get_status():
     return {
         "is_simulating": is_sim,
         "is_connecting": gps_service.is_connecting,
+        "is_reconnecting": gps_service.is_reconnecting,
+        "suspended_cruise_task": state["suspended_cruise_task"],
         "connect_stage": gps_service.connect_stage,
         "is_stopping": state["is_stopping"],
         "is_returning_home": state["is_returning_home"],
         "return_home_speed_kmh": RETURN_HOME_SPEED_KMH,
         "connected_udids": connected_list,
+        "reconnecting_udids": gps_service.reconnecting_udids,
+        "has_abnormal_disconnect": gps_service.has_abnormal_disconnect,
+        "abnormal_disconnected_udids": gps_service.abnormal_disconnected_udids,
         "returning_udids": returning_list,
         "connected_count": len(connected_list),
         "devices_state": devices_state,
@@ -1328,6 +1363,38 @@ async def disconnect_single_device(req: DeviceActionRequest):
     }
 
 
+@app.post("/api/device/reconnect-now")
+async def reconnect_device_now_api(req: Optional[AutomationTargetRequest] = None):
+    target_udid = req.udid if req else None
+    reconnected = gps_service.reconnect_device_now(target_udid)
+    _sync_global_return_and_cruise_flags()
+    return {
+        "status": "reconnecting",
+        "reconnected_udids": reconnected,
+        "suspended_cruise_task": state.get("suspended_cruise_task", False),
+    }
+
+
+@app.post("/api/device/abandon-reconnect")
+async def abandon_reconnect_api(req: Optional[AutomationTargetRequest] = None):
+    target_udid = req.udid if req else None
+    gps_service.abandon_reconnect(target_udid)
+    with state["lock"]:
+        state["is_cruising"] = False
+        state["is_cruise_paused"] = False
+        state["suspended_cruise_task"] = False
+        state["returning_to_loop_origin"] = False
+        state["current_wp_index"] = 0
+        state["is_returning_home"] = False
+        state["is_stopping"] = False
+    _sync_global_return_and_cruise_flags()
+    update_eta_calculation()
+    return {
+        "status": "abandoned",
+        "connected_udids": gps_service.connected_udids,
+    }
+
+
 @app.post("/api/cruise/start")
 async def start_backend_cruise(req: StartCruiseRequest):
     if not gps_service.is_connected or not req.waypoints:
@@ -1343,8 +1410,10 @@ async def start_backend_cruise(req: StartCruiseRequest):
         for w in req.waypoints
     ]
     with state["lock"]:
+        has_explicit_start = req.start_index is not None and 0 <= int(req.start_index) < len(new_wps)
         should_resume = (
-            bool(req.resume)
+            not has_explicit_start
+            and bool(req.resume)
             and not bool(req.reset)
             and (state["is_cruise_paused"] or state["is_cruising"])
             and (0 <= state["current_wp_index"] < len(new_wps) or state["returning_to_loop_origin"])
@@ -1353,16 +1422,20 @@ async def start_backend_cruise(req: StartCruiseRequest):
         state["original_waypoints"] = [dict(w) for w in new_wps]
         state["loop_mode"] = req.loop_mode
         state["target_loop_count"] = max(1, req.loop_count)
-        if not should_resume:
+        if has_explicit_start:
+            state["current_wp_index"] = int(req.start_index)
+            state["returning_to_loop_origin"] = False
+        elif not should_resume:
             state["current_wp_index"] = 0
             state["current_loop_idx"] = 1
             state["returning_to_loop_origin"] = False
         state["is_cruising"] = True
         state["is_cruise_paused"] = False
+        state["suspended_cruise_task"] = False
 
     update_eta_calculation()
     return {
-        "status": "cruising_resumed" if should_resume else "cruising_started",
+        "status": "cruising_resumed" if (should_resume or has_explicit_start) else "cruising_started",
         "current_wp_index": state["current_wp_index"],
         "current_loop_idx": state["current_loop_idx"],
         "returning_to_loop_origin": state["returning_to_loop_origin"],
@@ -1372,6 +1445,7 @@ async def start_backend_cruise(req: StartCruiseRequest):
 @app.post("/api/cruise/stop")
 async def stop_backend_cruise():
     _internal_pause_cruise()
+    state["suspended_cruise_task"] = False
     return {
         "status": "cruising_paused",
         "current_wp_index": state["current_wp_index"],
@@ -1399,16 +1473,21 @@ async def sync_cruise_waypoints(req: SyncWaypointsRequest):
             state["returning_to_loop_origin"] = False
             state["is_cruising"] = False
             state["is_cruise_paused"] = False
+            state["suspended_cruise_task"] = False
         else:
             prev_len = len(state["cruise_waypoints"])
-            if state["returning_to_loop_origin"] and len(new_wps) > prev_len and req.removed_index is None:
+            if req.set_next_index is not None and 0 <= int(req.set_next_index) < len(new_wps):
+                state["current_wp_index"] = int(req.set_next_index)
                 state["returning_to_loop_origin"] = False
-                state["current_wp_index"] = prev_len
+            else:
+                if state["returning_to_loop_origin"] and len(new_wps) > prev_len and req.removed_index is None:
+                    state["returning_to_loop_origin"] = False
+                    state["current_wp_index"] = prev_len
 
-            if req.removed_index is not None and req.removed_index < state["current_wp_index"]:
-                state["current_wp_index"] = max(0, state["current_wp_index"] - 1)
-            if state["current_wp_index"] >= len(new_wps):
-                state["current_wp_index"] = max(0, len(new_wps) - 1)
+                if req.removed_index is not None and req.removed_index < state["current_wp_index"]:
+                    state["current_wp_index"] = max(0, state["current_wp_index"] - 1)
+                if state["current_wp_index"] >= len(new_wps):
+                    state["current_wp_index"] = max(0, len(new_wps) - 1)
             state["cruise_waypoints"] = new_wps
             state["original_waypoints"] = [dict(w) for w in new_wps]
 
@@ -1418,6 +1497,52 @@ async def sync_cruise_waypoints(req: SyncWaypointsRequest):
         "current_wp_index": state["current_wp_index"],
         "returning_to_loop_origin": state["returning_to_loop_origin"],
         "total_waypoints": len(state["cruise_waypoints"]),
+        "eta_seconds": state["eta_seconds"],
+    }
+
+
+@app.post("/api/cruise/set-target")
+async def set_cruise_target_waypoint(req: SetCruiseTargetRequest):
+    with state["lock"]:
+        if req.waypoints is not None and len(req.waypoints) > 0:
+            new_wps = [
+                {
+                    "lat": float(w["lat"]),
+                    "lng": float(w["lng"]),
+                    "hold": bool(w.get("hold", False)),
+                    "name": str(w.get("name") or ""),
+                }
+                for w in req.waypoints
+            ]
+            state["cruise_waypoints"] = new_wps
+            state["original_waypoints"] = [dict(w) for w in new_wps]
+        if req.loop_mode in ("none", "infinite", "custom"):
+            state["loop_mode"] = req.loop_mode
+        if req.loop_count is not None:
+            state["target_loop_count"] = max(1, int(req.loop_count))
+
+        wps = state["cruise_waypoints"]
+        if not wps or req.wp_index < 0 or req.wp_index >= len(wps):
+            raise HTTPException(status_code=400, detail="無效的目標航點索引")
+
+        state["current_wp_index"] = int(req.wp_index)
+        state["returning_to_loop_origin"] = False
+        if req.auto_start:
+            if not gps_service.is_connected:
+                raise HTTPException(status_code=400, detail="尚未連線至 iOS 裝置")
+            state["is_cruising"] = True
+            state["is_cruise_paused"] = False
+            state["suspended_cruise_task"] = False
+        elif not state["is_cruising"]:
+            state["is_cruise_paused"] = True
+
+    update_eta_calculation()
+    return {
+        "status": "target_updated",
+        "current_wp_index": state["current_wp_index"],
+        "is_cruising": state["is_cruising"],
+        "is_cruise_paused": state["is_cruise_paused"],
+        "returning_to_loop_origin": state["returning_to_loop_origin"],
         "eta_seconds": state["eta_seconds"],
     }
 
@@ -1504,14 +1629,18 @@ async def teleport_direct(req: TeleportRequest):
 async def update_settings(req: SettingsRequest):
     cfg = load_config()
     with state["lock"]:
-        if req.speed_mode is not None and req.speed_mode in SPEED_MODES:
-            mode_info = SPEED_MODES[req.speed_mode]
-            state["speed_mode"] = req.speed_mode
-            state["pikmin_tier"] = mode_info["pikmin_tier"]
-            state["speed_kmh"] = mode_info["speed_kmh"]
-            cfg["speed_mode"] = req.speed_mode
-            cfg["pikmin_tier"] = state["pikmin_tier"]
-            cfg["speed_kmh"] = state["speed_kmh"]
+        if req.speed_mode is not None:
+            if req.speed_mode in SPEED_MODES:
+                mode_info = SPEED_MODES[req.speed_mode]
+                state["speed_mode"] = req.speed_mode
+                state["pikmin_tier"] = mode_info["pikmin_tier"]
+                state["speed_kmh"] = mode_info["speed_kmh"]
+                cfg["speed_mode"] = req.speed_mode
+                cfg["pikmin_tier"] = state["pikmin_tier"]
+                cfg["speed_kmh"] = state["speed_kmh"]
+            elif req.speed_mode == "manual":
+                state["speed_mode"] = "manual"
+                cfg["speed_mode"] = "manual"
 
         if req.pikmin_tier is not None and req.pikmin_tier in PIKMIN_TIERS:
             state["pikmin_tier"] = req.pikmin_tier

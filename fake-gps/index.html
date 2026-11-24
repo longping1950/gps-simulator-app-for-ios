@@ -462,7 +462,7 @@
                 <h3 style="margin:0; font-size:14.5px;" id="left-panel-title">模擬控制台</h3>
             </div>
             <div class="collapse-hide" style="display:flex; gap:4px; align-items:center;">
-                <button id="btn-version-badge" class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:10.5px; color:#047857; border-color:#a7f3d0; background:#ecfdf5; font-weight:700;" onclick="checkAppVersion(true)" title="點擊檢查 GitHub Releases 最新版本與熱更新">🔄 v2.0</button>
+                <button id="btn-version-badge" class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:10.5px; color:#047857; border-color:#a7f3d0; background:#ecfdf5; font-weight:700;" onclick="checkAppVersion(true)" title="點擊檢查 GitHub Releases 最新版本與熱更新">🔄 v2.0.2</button>
                 <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:11px; color:#1d4ed8; border-color:#93c5fd; background:#eff6ff; font-weight:700;" onclick="openAutomationModal('default')" title="開啟皮克敏全域預設自動化設定 (各裝置也可於下方清單獨立設定)">⚙️ 設定</button>
                 <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:11px;" onclick="openGuide()">❓ 指引</button>
                 <button class="collapse-toggle-btn" title="收合控制台" onclick="togglePanel('left')">✕</button>
@@ -613,13 +613,20 @@
                     </button>
                 </div>
 
-                <!-- 時速滑桿 (0 ~ 2000 km/h) -->
-                <div style="margin-top:6px;">
-                    <input type="range" id="speed-slider" min="0" max="2000" step="0.5" value="17" style="width: 100%; margin: 2px 0;" />
-                    <div style="display:flex; justify-content:space-between; font-size:10px; color:#64748b;">
-                        <span>靜止 0 km/h</span>
-                        <span>種花 16.5~18 / 高速 60</span>
-                        <span>極限 2000 km/h</span>
+                <!-- 手動速度設定 (勾選框 + 僅限數字輸入框 0 ~ 2000 km/h) -->
+                <div style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:6px 8px;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; user-select:none;">
+                        <input type="checkbox" id="chk-manual-speed" onchange="onToggleManualSpeed(this.checked)" style="width:15px; height:15px; accent-color:#007aff; cursor:pointer;" />
+                        <span>手動速度</span>
+                    </label>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <input type="text" id="manual-speed-input" inputmode="decimal" value="17" disabled
+                            placeholder="0 ~ 2000"
+                            oninput="onManualSpeedInput(this)"
+                            onchange="onManualSpeedCommit(this)"
+                            onkeydown="if(event.key==='Enter'){this.blur();}"
+                            style="width:76px; padding:4px 7px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; font-weight:700; text-align:right; color:#0f172a; background:#ffffff; outline:none;" />
+                        <span style="font-size:11px; color:#64748b; font-weight:600;">km/h</span>
                     </div>
                 </div>
 
@@ -830,6 +837,34 @@
         </div>
     </div>
 
+    <!-- ⚠️ 異常斷線警示與任務接續確認彈窗 -->
+    <div id="abnormal-disconnect-modal" class="modal-overlay" style="z-index: 2680;">
+        <div class="modal-card" style="max-width: 420px; text-align: center;">
+            <div id="abd-step-main">
+                <div style="font-size: 38px; margin-bottom: 6px;">⚠️</div>
+                <h3 style="margin: 0 0 8px 0; color: #b91c1c;">裝置連線異常中斷</h3>
+                <p id="abnormal-disconnect-msg" style="font-size: 13px; color: #475569; line-height: 1.6; margin-bottom: 16px;">
+                    偵測到定位連線異常中斷。選擇「重新連線」將立即恢復連線並接續斷線前任務；選擇「關閉」則會停止重連。
+                </p>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-tool" style="flex:1; margin:0;" onclick="showAbnormalCloseConfirm()">關閉</button>
+                    <button id="btn-abd-reconnect" class="btn btn-start" style="flex:1; margin:0; background:linear-gradient(135deg,#007aff,#2563eb);" onclick="reconnectFromAbnormalModal()">🔄 重新連線</button>
+                </div>
+            </div>
+            <div id="abd-step-confirm" style="display:none;">
+                <div style="font-size: 38px; margin-bottom: 6px;">🛑</div>
+                <h3 style="margin: 0 0 8px 0; color: #b91c1c;">確認關閉並放棄任務？</h3>
+                <p style="font-size: 13px; color: #475569; line-height: 1.6; margin-bottom: 16px;">
+                    關閉後將停止重連，且<b>連線將不會繼續執行斷線前的任務</b>（含巡航或返航進度）。確定要關閉嗎？
+                </p>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-tool" style="flex:1; margin:0;" onclick="hideAbnormalCloseConfirm()">返回</button>
+                    <button class="btn btn-stop" style="flex:1; margin:0;" onclick="confirmAbandonAbnormalDisconnect()">確定關閉</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ✏️ App 內建文字輸入彈窗 (取代瀏覽器 prompt，支援連按兩次 Enter 確認) -->
     <div id="text-input-modal" class="modal-overlay" style="z-index: 2700;">
         <div class="modal-card" style="max-width: 390px;">
@@ -856,7 +891,7 @@
 
             <div style="margin:12px 0; font-size:12.5px; color:#334155;">
                 <div style="display:flex; justify-content:space-between; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; margin-bottom:10px;">
-                    <span>目前本機版本：<b id="ver-local-label" style="color:#475569;">v2.0</b></span>
+                    <span>目前本機版本：<b id="ver-local-label" style="color:#475569;">v2.0.2</b></span>
                     <span>GitHub Release 最新版：<b id="ver-remote-label" style="color:#0284c7;">v2.0</b></span>
                 </div>
                 <div id="ver-release-title" style="font-weight:800; font-size:13.5px; color:#0f172a; margin-bottom:6px;"></div>
@@ -1380,6 +1415,8 @@
 
         let isManualModeActive = false;
         let isSimulating = false;
+        let isReconnecting = false;
+        let suspendedCruiseTask = false;
         let isStopping = false;
         let isReturningHome = false;
         let isCruising = false;
@@ -1390,6 +1427,7 @@
         let currentPos = null;
         let originPos = null;
         let connectedUdids = [];
+        let reconnectingUdids = [];
 
         let cachedDebugLogs = [];
         let lastSeenDebugId = 0;
@@ -1481,9 +1519,11 @@
             const tier = PIKMIN_TIERS[currentPikminTier] || PIKMIN_TIERS[5];
             const eff = calculatePlantingEfficiency(tier.pikmin_count, currentSpeedKmh);
 
-            document.getElementById('pk-tier-name').innerText = currentSpeedMode === 'extreme_18'
-                ? `⚡ 極速種花 (40隻滿編)`
-                : (currentSpeedMode === 'fast_800' ? `✈️ 快速移動模式` : `${tier.label}`);
+            document.getElementById('pk-tier-name').innerText = currentSpeedMode === 'manual'
+                ? `🎛️ 手動速度 (${currentSpeedKmh} km/h)`
+                : (currentSpeedMode === 'extreme_18'
+                    ? `⚡ 極速種花 (40隻滿編)`
+                    : (currentSpeedMode === 'fast_800' ? `✈️ 快速移動模式` : `${tier.label}`));
             document.getElementById('pk-efficiency').innerText = eff.over_speed_limit
                 ? `超速 0 朵/片`
                 : `利用率 ${eff.flowers_per_petal.toFixed(1)} 朵/片`;
@@ -1740,8 +1780,13 @@
             currentPikminTier = modeCfg.pikmin_tier;
             currentSpeedKmh = modeCfg.speed_kmh;
 
-            let slider = document.getElementById('speed-slider');
-            if (slider) slider.value = Math.min(2000.0, Math.max(0.0, currentSpeedKmh));
+            let chkManual = document.getElementById('chk-manual-speed');
+            let manualInput = document.getElementById('manual-speed-input');
+            if (chkManual) chkManual.checked = false;
+            if (manualInput) {
+                manualInput.disabled = true;
+                manualInput.value = Math.min(2000.0, Math.max(0.0, currentSpeedKmh));
+            }
             document.getElementById('speed-label').innerText = currentSpeedKmh >= 500 ? `${currentSpeedKmh} (快速)` : currentSpeedKmh;
 
             let payload = {
@@ -1767,37 +1812,77 @@
             fetchStatus();
         }
 
-        document.getElementById('speed-slider').addEventListener('input', e => {
-            let rawVal = parseFloat(e.target.value);
-            let val = Math.min(2000.0, Math.max(0.0, isNaN(rawVal) ? 17.0 : rawVal));
-            currentSpeedKmh = val;
-            if (Math.abs(val - 800.0) < 0.1) {
-                currentSpeedMode = 'fast_800';
-            } else if (Math.abs(val - 60.0) < 0.1) {
-                currentSpeedMode = 'fast_60';
-            } else if (Math.abs(val - 18.0) < 0.1 && currentPikminTier === 5) {
-                currentSpeedMode = 'extreme_18';
+        async function onToggleManualSpeed(checked) {
+            let manualInput = document.getElementById('manual-speed-input');
+            if (checked) {
+                currentSpeedMode = 'manual';
+                if (manualInput) {
+                    manualInput.disabled = false;
+                    let rawVal = parseFloat(manualInput.value);
+                    let val = Math.min(2000.0, Math.max(0.0, isNaN(rawVal) ? currentSpeedKmh : rawVal));
+                    manualInput.value = val;
+                    currentSpeedKmh = val;
+                    manualInput.focus();
+                    manualInput.select();
+                }
+                document.getElementById('speed-label').innerText = currentSpeedKmh >= 500 ? `${currentSpeedKmh} (手動)` : currentSpeedKmh;
+                updateSpeedAndTierButtons();
+                updatePikminUI();
+                await fetch('/api/set-settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ speed_kmh: currentSpeedKmh, speed_mode: 'manual' })
+                });
+                fetchStatus();
             } else {
-                currentSpeedMode = `tier_${currentPikminTier}`;
+                if (manualInput) manualInput.disabled = true;
+                await selectSpeedMode(`tier_${currentPikminTier}`);
             }
-            document.getElementById('speed-label').innerText = val;
+        }
+
+        function onManualSpeedInput(el) {
+            let cleaned = String(el.value || '').replace(/[^0-9.]/g, '');
+            let dotIdx = cleaned.indexOf('.');
+            if (dotIdx !== -1) {
+                cleaned = cleaned.slice(0, dotIdx + 1) + cleaned.slice(dotIdx + 1).replace(/\./g, '');
+            }
+            if (cleaned !== '' && cleaned !== '.') {
+                let num = parseFloat(cleaned);
+                if (!isNaN(num) && num > 2000) {
+                    cleaned = '2000';
+                }
+            }
+            if (el.value !== cleaned) el.value = cleaned;
+            let chkManual = document.getElementById('chk-manual-speed');
+            if (!chkManual || !chkManual.checked) return;
+            let parsed = parseFloat(cleaned);
+            if (isNaN(parsed)) return;
+            let val = Math.min(2000.0, Math.max(0.0, parsed));
+            currentSpeedMode = 'manual';
+            currentSpeedKmh = val;
+            document.getElementById('speed-label').innerText = val >= 500 ? `${val} (手動)` : val;
             updateSpeedAndTierButtons();
             updatePikminUI();
-        });
+        }
 
-        document.getElementById('speed-slider').addEventListener('change', async e => {
-            let rawVal = parseFloat(e.target.value);
-            let val = Math.min(2000.0, Math.max(0.0, isNaN(rawVal) ? 17.0 : rawVal));
+        async function onManualSpeedCommit(el) {
+            let chkManual = document.getElementById('chk-manual-speed');
+            if (!chkManual || !chkManual.checked) return;
+            let parsed = parseFloat(el.value);
+            let val = Math.min(2000.0, Math.max(0.0, isNaN(parsed) ? 0.0 : parsed));
+            el.value = val;
+            currentSpeedMode = 'manual';
             currentSpeedKmh = val;
-            document.getElementById('speed-label').innerText = val;
+            document.getElementById('speed-label').innerText = val >= 500 ? `${val} (手動)` : val;
             updateSpeedAndTierButtons();
+            updatePikminUI();
             await fetch('/api/set-settings', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ speed_kmh: val, speed_mode: currentSpeedMode })
+                body: JSON.stringify({ speed_kmh: val, speed_mode: 'manual' })
             });
             fetchStatus();
-        });
+        }
 
         document.getElementById('random-slider').addEventListener('input', e => {
             let val = parseInt(e.target.value, 10);
@@ -2226,8 +2311,15 @@
                 currentSpeedKmh = (data.speed_kmh !== undefined && data.speed_kmh !== null) ? data.speed_kmh : 17.0;
                 currentPikminTier = data.pikmin_tier || 5;
                 currentSpeedMode = data.speed_mode || `tier_${currentPikminTier}`;
-                document.getElementById('speed-slider').value = Math.min(2000.0, Math.max(0.0, currentSpeedKmh));
-                document.getElementById('speed-label').innerText = currentSpeedKmh >= 500 ? `${currentSpeedKmh} (快速)` : currentSpeedKmh;
+                let isManualInit = (currentSpeedMode === 'manual');
+                let chkManualInit = document.getElementById('chk-manual-speed');
+                let manualInputInit = document.getElementById('manual-speed-input');
+                if (chkManualInit) chkManualInit.checked = isManualInit;
+                if (manualInputInit) {
+                    manualInputInit.disabled = !isManualInit;
+                    manualInputInit.value = Math.min(2000.0, Math.max(0.0, currentSpeedKmh));
+                }
+                document.getElementById('speed-label').innerText = currentSpeedKmh >= 500 ? `${currentSpeedKmh} (${isManualInit ? '手動' : '快速'})` : currentSpeedKmh;
 
                 let rl = data.random_level || 0;
                 document.getElementById('sw-jitter-mode').checked = rl > 0;
@@ -2323,9 +2415,11 @@
                         <b>點 ${idx + 1}</b> ${wp.name ? `<span style="font-size:11px; color:#334155;">(${escapeHtml(wp.name)})</span> ` : ''}${originBadge}${holdBadge}${statusTag}<br>
                         <span style="font-family:monospace; color:#555; font-size:11px;">${wp.lat.toFixed(5)}, ${wp.lng.toFixed(5)}</span>
                     </div>
-                    <div style="display:flex; gap:4px; align-items:center;" onclick="event.stopPropagation()">
-                        <button class="btn btn-tool" style="width:auto; padding:2px 6px; margin:0; font-size:10.5px; ${holdBtnStyle}" title="切換抵達此航點時是否跳通知並自動停留" onclick="toggleActiveWaypointHold(${idx})">${wp.hold ? '⏸️ 停留中' : '⏸️ 停留'}</button>
-                        <button class="btn btn-tool" style="width:auto; padding:2px 7px; margin:0; color:#ff3b30;" onclick="removeWaypoint(${idx})">❌</button>
+                    <div style="display:flex; gap:3px; align-items:center; flex-wrap:wrap; justify-content:flex-end;" onclick="event.stopPropagation()">
+                        <button class="btn btn-tool" style="width:auto; padding:2px 5px; margin:0; font-size:10px; color:#0284c7; border-color:#bae6fd; background:#f0f9ff;" title="切換目前的下一點目標為此點" onclick="setNextTargetWaypoint(${idx})">🎯 設下一點</button>
+                        <button class="btn btn-tool" style="width:auto; padding:2px 5px; margin:0; font-size:10px; color:#15803d; border-color:#bbf7d0; background:#f0fdf4;" title="立即從此點開始或繼續巡航" onclick="resumeCruiseFromWaypoint(${idx})">▶️ 從此點</button>
+                        <button class="btn btn-tool" style="width:auto; padding:2px 5px; margin:0; font-size:10px; ${holdBtnStyle}" title="切換抵達此航點時是否跳通知並自動停留" onclick="toggleActiveWaypointHold(${idx})">${wp.hold ? '⏸️ 停留中' : '⏸️ 停留'}</button>
+                        <button class="btn btn-tool" style="width:auto; padding:2px 6px; margin:0; font-size:10px; color:#ff3b30;" onclick="removeWaypoint(${idx})">❌</button>
                     </div>
                 </div>`;
             });
@@ -2422,14 +2516,15 @@
             }
         }
 
-        async function syncWaypointsToServer(removedIndex = null) {
+        async function syncWaypointsToServer(removedIndex = null, setNextIndex = null) {
             try {
                 let res = await fetch('/api/cruise/sync-waypoints', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, hold: Boolean(w.hold), name: w.name || '' })),
-                        removed_index: removedIndex
+                        removed_index: removedIndex,
+                        set_next_index: setNextIndex
                     })
                 });
                 if (res.ok) {
@@ -2440,8 +2535,96 @@
                     updateWaypointMarkerStyles();
                     renderWaypointsList();
                     updatePikminUI();
+                    checkCruiseButtons();
                 }
             } catch (e) {}
+        }
+
+        // 🎯 插入點位功能：在目前下一目標點位置插入點位，並直接切換目前的下一點目標為該點
+        async function insertWaypointAsNextTarget(lat, lng, hold = false, name = '') {
+            let insertIdx = waypoints.length > 0
+                ? Math.max(0, Math.min(waypoints.length, returningToLoopOrigin ? 0 : currentWpIndex))
+                : 0;
+            let m = L.circleMarker([lat, lng], {
+                radius: 8,
+                weight: hold ? 3 : 2,
+                color: '#007aff',
+                fillColor: '#007aff',
+                fillOpacity: 0.92
+            }).addTo(map).bindTooltip(`🎯 點 ${insertIdx + 1}`, { permanent: true, direction: 'top' });
+
+            let wpObj = { lat: lat, lng: lng, hold: Boolean(hold), name: name || '', marker: m };
+            m.on('contextmenu', e => {
+                if (e.originalEvent) {
+                    e.originalEvent.preventDefault();
+                    e.originalEvent.stopPropagation();
+                }
+                let curIdx = waypoints.indexOf(wpObj);
+                if (curIdx !== -1) {
+                    openWaypointContextMenu(e.originalEvent || { clientX: 240, clientY: 240 }, curIdx);
+                }
+            });
+
+            waypoints.splice(insertIdx, 0, wpObj);
+            currentWpIndex = insertIdx;
+            returningToLoopOrigin = false;
+            if (!isCruising && waypoints.length > 0) {
+                isCruisePaused = true;
+            }
+            document.getElementById('wp-count-badge').innerText = waypoints.length;
+            updateWaypointMarkerStyles();
+            renderWaypointsList();
+            updatePolyline();
+            updatePikminUI();
+            checkCruiseButtons();
+            await syncWaypointsToServer(null, insertIdx);
+            showToast(`📌 已插入「點 ${insertIdx + 1}」並將下一點目標切換至此處！`);
+        }
+
+        // 🎯 切換目前的下一點目標為指定航點 (保留當前巡航/暫停狀態)
+        async function setNextTargetWaypoint(idx) {
+            if (idx < 0 || idx >= waypoints.length) return;
+            currentWpIndex = idx;
+            returningToLoopOrigin = false;
+            if (!isCruising) isCruisePaused = true;
+            updateWaypointMarkerStyles();
+            renderWaypointsList();
+            checkCruiseButtons();
+            try {
+                let res = await fetch('/api/cruise/set-target', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        wp_index: idx,
+                        waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, hold: Boolean(w.hold), name: w.name || '' })),
+                        loop_mode: loopMode,
+                        loop_count: loopTargetCount,
+                        auto_start: false
+                    })
+                });
+                if (res.ok) {
+                    let data = await res.json();
+                    currentWpIndex = data.current_wp_index ?? idx;
+                    isCruising = Boolean(data.is_cruising);
+                    isCruisePaused = Boolean(data.is_cruise_paused);
+                    returningToLoopOrigin = Boolean(data.returning_to_loop_origin);
+                    updateWaypointMarkerStyles();
+                    renderWaypointsList();
+                    checkCruiseButtons();
+                }
+            } catch (e) {}
+            showToast(`🎯 已將下一點目標切換為「點 ${idx + 1}」！`);
+        }
+
+        // ▶️ 從此點繼續巡航
+        async function resumeCruiseFromWaypoint(idx) {
+            if (idx < 0 || idx >= waypoints.length) return;
+            if (!isSimulating || isStopping) {
+                await setNextTargetWaypoint(idx);
+                showToast(`📍 已設定從「點 ${idx + 1}」繼續，連線裝置後點擊開始即可出發！`);
+                return;
+            }
+            await startCruise(false, idx);
         }
 
         // --- 📂 通用路徑點 / 路標格式解析器 (修正 WKWebView GPX XML Namespace 與各種 JSON 結構相容性) ---
@@ -3296,7 +3479,8 @@
                                 <span style="font-family:monospace; color:#64748b; font-size:10.5px;">${Number(wp.lat).toFixed(5)}, ${Number(wp.lng).toFixed(5)}</span>
                             </div>
                             <div style="display:flex; gap:4px; align-items:center;" onclick="event.stopPropagation()">
-                                <button class="btn btn-tool" style="width:auto; padding:3px 8px; margin:0; font-size:10.5px; ${btnStyle}" onclick="toggleSavedRouteWaypointHold('${r.id}', ${wpIdx})">
+                                <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:10.5px; color:#15803d; border-color:#bbf7d0; background:#f0fdf4;" title="載入此路線並從此點繼續" onclick="loadRouteAndStartFrom('${r.id}', ${wpIdx})">▶️ 從此點</button>
+                                <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:10.5px; ${btnStyle}" onclick="toggleSavedRouteWaypointHold('${r.id}', ${wpIdx})">
                                     ${isHold ? '⏸️ 抵達停留中' : '⏸️ 設為停留'}
                                 </button>
                                 <button class="btn btn-tool" style="width:auto; padding:3px 6px; margin:0; font-size:10.5px; color:#ff3b30;" title="從此路線移除此點" onclick="removeSavedRouteWaypoint('${r.id}', ${wpIdx})">❌</button>
@@ -3372,7 +3556,7 @@
             }
         }
 
-        async function loadRoute(routeId) {
+        async function loadRoute(routeId, startFromIdx = null) {
             let target = savedRoutes.find(r => r.id === routeId);
             if (!target) return;
 
@@ -3393,7 +3577,8 @@
             }
 
             if (waypoints.length > 0) {
-                map.panTo([waypoints[0].lat, waypoints[0].lng]);
+                let focusIdx = (startFromIdx !== null && startFromIdx >= 0 && startFromIdx < waypoints.length) ? startFromIdx : 0;
+                map.panTo([waypoints[focusIdx].lat, waypoints[focusIdx].lng]);
             }
 
             switchRightTab('waypoints');
@@ -3403,6 +3588,11 @@
             let loopDesc = loopMode === 'infinite' ? ' (無限循環)' : (loopMode === 'custom' ? ` (循環 ${loopTargetCount} 圈)` : ' (單次巡航)');
             let holdDesc = holdCount > 0 ? ` · 含 ${holdCount} 個停留點` : '';
             showToast(`📂 已載入路線: ${target.name}${loopDesc}${holdDesc}`);
+        }
+
+        async function loadRouteAndStartFrom(routeId, wpIdx) {
+            await loadRoute(routeId, wpIdx);
+            await resumeCruiseFromWaypoint(wpIdx);
         }
 
         async function saveCurrentRoute() {
@@ -3551,6 +3741,9 @@
             let subMenuHtml = buildLandmarkSubmenuHtml(lat, lng, '');
             let html = `
                 <div class="ctx-header">📍 地圖座標：${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+                <div class="ctx-item" onclick="hideAppContextMenu(); insertWaypointAsNextTarget(${lat}, ${lng}, false)">
+                    <span>🔀 插入為下一目標點 (切換下一點目標)</span>
+                </div>
                 <div class="ctx-item" onclick="hideAppContextMenu(); addWaypointAt(${lat}, ${lng}, true, false)">
                     <span>🎯 新增路徑點 (加入當前路徑)</span>
                 </div>
@@ -3582,6 +3775,12 @@
             let subMenuHtml = buildLandmarkSubmenuHtml(wp.lat, wp.lng, wp.name || `點 ${idx + 1}`);
             let html = `
                 <div class="ctx-header">🎯 路徑點：點 ${idx + 1} ${wp.name ? `(${escapeHtml(wp.name)})` : ''}</div>
+                <div class="ctx-item" style="color:#15803d;" onclick="hideAppContextMenu(); resumeCruiseFromWaypoint(${idx})">
+                    <span>▶️ 從此點繼續巡航 (點 ${idx + 1})</span>
+                </div>
+                <div class="ctx-item" style="color:#0284c7;" onclick="hideAppContextMenu(); setNextTargetWaypoint(${idx})">
+                    <span>🎯 切換下一點目標為此點</span>
+                </div>
                 <div class="ctx-item" onclick="hideAppContextMenu(); toggleActiveWaypointHold(${idx})">
                     <span>⏸️ ${wp.hold ? '取消「抵達停留」' : '設為「抵達停留」'}</span>
                 </div>
@@ -3611,6 +3810,9 @@
             let subMenuHtml = buildLandmarkSubmenuHtml(wp.lat, wp.lng, wp.name || `${route.name}-點${wpIdx + 1}`);
             let html = `
                 <div class="ctx-header">📂 ${escapeHtml(route.name)} · 點 ${wpIdx + 1}</div>
+                <div class="ctx-item" style="color:#15803d;" onclick="hideAppContextMenu(); loadRouteAndStartFrom('${routeId}', ${wpIdx})">
+                    <span>▶️ 載入路線並從此點繼續</span>
+                </div>
                 <div class="ctx-item" onclick="hideAppContextMenu(); toggleSavedRouteWaypointHold('${routeId}', ${wpIdx})">
                     <span>⏸️ ${wp.hold ? '取消「抵達停留」' : '設為「抵達停留」'}</span>
                 </div>
@@ -3637,6 +3839,9 @@
             let safeName = escapeHtml(lm.name || `路標 ${idx + 1}`).replace(/'/g, "\\'");
             let html = `
                 <div class="ctx-header">📌 路標：${escapeHtml(lm.name || `路標 ${idx + 1}`)}</div>
+                <div class="ctx-item" style="color:#0284c7;" onclick="hideAppContextMenu(); insertWaypointAsNextTarget(${Number(lm.lat)}, ${Number(lm.lng)}, false, '${safeName}')">
+                    <span>🔀 插入為下一目標點 (切換下一點目標)</span>
+                </div>
                 <div class="ctx-item" onclick="hideAppContextMenu(); addWaypointAt(${Number(lm.lat)}, ${Number(lm.lng)}, true, false, '${safeName}')">
                     <span>🎯 加入當前巡航路徑點</span>
                 </div>
@@ -3787,7 +3992,9 @@
                 let data = await res.json();
                 cachedDevicesList = data.devices || [];
                 connectedUdids = data.connected_udids || [];
+                reconnectingUdids = data.reconnecting_udids || [];
                 returningUdids = data.returning_udids || [];
+                isReconnecting = Boolean(data.is_reconnecting);
                 renderDeviceList(cachedDevicesList, connectedUdids);
                 syncBenchUdidDropdown();
             } catch(e) {
@@ -3821,13 +4028,17 @@
             devices.forEach(d => {
                 let isConn = connectedList.includes(d.udid);
                 let devLive = latestDevicesState[d.udid] || {};
+                let isDevReconn = Boolean(devLive.is_reconnecting || reconnectingUdids.includes(d.udid));
                 let isDevReturning = Boolean(devLive.is_returning_home || returningUdids.includes(d.udid));
                 let connClass = d.connection.toLowerCase().includes('wifi') || d.connection.toLowerCase().includes('network') ? 'wifi' : 'usb';
                 let shortUdid = d.udid.length > 16 ? d.udid.substring(0, 8) + '...' + d.udid.substring(d.udid.length - 6) : d.udid;
 
-                let ddiStatus = isConn ? 'mounted' : (d.ddi_status || 'unknown');
+                let ddiStatus = (isConn || isDevReconn) ? 'mounted' : (d.ddi_status || 'unknown');
                 let ddiBadge = '';
-                if (isDevReturning) {
+                if (isDevReconn) {
+                    let attemptTxt = devLive.reconnect_attempt ? ` (${devLive.reconnect_attempt}/${devLive.max_reconnect_attempts || 8})` : '';
+                    ddiBadge = `<span style="background:#fef3c7; color:#b45309; padding:1px 6px; border-radius:4px; font-size:9.5px; font-weight:700;">🔄 斷線重連中${attemptTxt} · 已保留原任務</span>`;
+                } else if (isDevReturning) {
                     ddiBadge = `<span style="background:#fef3c7; color:#b45309; padding:1px 6px; border-radius:4px; font-size:9.5px; font-weight:700;">🏠 60km/h 返航中 (${devLive.distance_from_origin ?? '--'}m)</span>`;
                 } else if (isConn) {
                     let distTxt = devLive.distance_from_origin !== undefined ? ` · 離起點 ${devLive.distance_from_origin}m` : '';
@@ -3905,9 +4116,11 @@
                     </div>
                     <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
                         <button class="btn btn-tool" style="width:auto; padding:3px 7px; margin:0; font-size:11px; color:#1d4ed8; border-color:#bfdbfe; background:#eff6ff;" title="設定此裝置的自動化守護參數" onclick="openAutomationModal('${d.udid}')">⚙️</button>
-                        ${isConn ? 
-                            `<button class="btn ${isDevReturning ? 'btn-force' : 'btn-tool'}" style="width:auto; padding:3px 8px; margin:0; font-size:11px; ${isDevReturning ? '' : 'color:#ff3b30;'}" title="${isDevReturning ? '目前正在以 60km/h 平滑返航，再點一下立即強制斷開' : '點擊啟動 60km/h 平滑返航'}" onclick="disconnectSingleDevice('${d.udid}')">${isDevReturning ? '🏠 返航中 (再點斷線)' : '中斷'}</button>` :
-                            `<button class="btn btn-start" style="width:auto; padding:3px 10px; margin:0; font-size:11px;" ${window.isConnectingDevice ? 'disabled' : ''} onclick="connectSingleDevice('${d.udid}', this)">${window.isConnectingDevice ? '連線中...' : '連線'}</button>`
+                        ${isDevReconn ?
+                            `<button class="btn btn-tool" style="width:auto; padding:3px 8px; margin:0; font-size:11px; color:#b45309; border-color:#fde68a; background:#fffbeb;" title="取消自動重連並結束原任務" onclick="disconnectSingleDevice('${d.udid}')">取消重連</button>` :
+                            (isConn ? 
+                                `<button class="btn ${isDevReturning ? 'btn-force' : 'btn-tool'}" style="width:auto; padding:3px 8px; margin:0; font-size:11px; ${isDevReturning ? '' : 'color:#ff3b30;'}" title="${isDevReturning ? '目前正在以 60km/h 平滑返航，再點一下立即強制斷開' : '點擊啟動 60km/h 平滑返航'}" onclick="disconnectSingleDevice('${d.udid}')">${isDevReturning ? '🏠 返航中 (再點斷線)' : '中斷'}</button>` :
+                                `<button class="btn btn-start" style="width:auto; padding:3px 10px; margin:0; font-size:11px;" ${window.isConnectingDevice ? 'disabled' : ''} onclick="connectSingleDevice('${d.udid}', this)">${window.isConnectingDevice ? '連線中...' : '連線'}</button>`)
                         }
                     </div>
                 </div>`;
@@ -4025,18 +4238,93 @@
             setTimeout(fetchStatus, 250);
         }
 
+        let hasAbnormalDisconnect = false;
+        let abnormalModalDismissedForIncident = false;
+
+        function openAbnormalDisconnectModal() {
+            let modal = document.getElementById('abnormal-disconnect-modal');
+            let stepMain = document.getElementById('abd-step-main');
+            let stepConfirm = document.getElementById('abd-step-confirm');
+            if (stepMain) stepMain.style.display = 'block';
+            if (stepConfirm) stepConfirm.style.display = 'none';
+            if (modal) modal.style.display = 'flex';
+        }
+
+        function closeAbnormalDisconnectModal() {
+            let modal = document.getElementById('abnormal-disconnect-modal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function showAbnormalCloseConfirm() {
+            let stepMain = document.getElementById('abd-step-main');
+            let stepConfirm = document.getElementById('abd-step-confirm');
+            if (stepMain) stepMain.style.display = 'none';
+            if (stepConfirm) stepConfirm.style.display = 'block';
+        }
+
+        function hideAbnormalCloseConfirm() {
+            let stepMain = document.getElementById('abd-step-main');
+            let stepConfirm = document.getElementById('abd-step-confirm');
+            if (stepMain) stepMain.style.display = 'block';
+            if (stepConfirm) stepConfirm.style.display = 'none';
+        }
+
+        async function reconnectFromAbnormalModal() {
+            let btn = document.getElementById('btn-abd-reconnect');
+            if (btn) { btn.disabled = true; btn.innerText = '🔄 重連中...'; }
+            try {
+                let res = await fetch('/api/device/reconnect-now', { method: 'POST' });
+                let data = await res.json();
+                if (res.ok && data.ok) {
+                    abnormalModalDismissedForIncident = true;
+                    closeAbnormalDisconnectModal();
+                    showToast('🔄 已觸發立即重連，成功後將接續斷線前任務');
+                } else {
+                    showToast(data.message || '重新連線觸發失敗', true);
+                }
+            } catch (e) {
+                showToast('重新連線請求失敗', true);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = '🔄 重新連線'; }
+                fetchStatus();
+            }
+        }
+
+        async function confirmAbandonAbnormalDisconnect() {
+            try {
+                let res = await fetch('/api/device/abandon-reconnect', { method: 'POST' });
+                let data = await res.json();
+                if (res.ok && data.ok) {
+                    abnormalModalDismissedForIncident = true;
+                    closeAbnormalDisconnectModal();
+                    showToast('已關閉重連並清除未完成的任務');
+                } else {
+                    showToast(data.message || '關閉連線失敗', true);
+                }
+            } catch (e) {
+                showToast('關閉連線請求失敗', true);
+            } finally {
+                fetchStatus();
+            }
+        }
+
         async function fetchStatus() {
             try {
                 let res = await fetch('/api/status');
                 let data = await res.json();
 
                 let prevReturning = isReturningHome;
+                let prevReconnecting = isReconnecting;
+                let prevAbnormalDisconnect = hasAbnormalDisconnect;
                 let prevWpIdx = currentWpIndex;
                 let prevCruising = isCruising;
                 let prevLoopOrig = returningToLoopOrigin;
                 let prevConnCount = connectedUdids.length;
 
                 isSimulating = data.is_simulating;
+                isReconnecting = Boolean(data.is_reconnecting);
+                hasAbnormalDisconnect = Boolean(data.has_abnormal_disconnect);
+                suspendedCruiseTask = Boolean(data.suspended_cruise_task);
                 isStopping = data.is_stopping;
                 isReturningHome = data.is_returning_home || data.is_stopping;
                 isCruising = data.is_cruising;
@@ -4045,10 +4333,26 @@
                 currentWpIndex = data.current_wp_index || 0;
                 serverEtaSeconds = data.eta_seconds || 0;
                 connectedUdids = data.connected_udids || [];
+                reconnectingUdids = data.reconnecting_udids || [];
                 returningUdids = data.returning_udids || [];
                 latestDevicesState = data.devices_state || {};
                 let isConnecting = data.is_connecting;
                 let connectStage = data.connect_stage || '連線初始化中...';
+
+                if (hasAbnormalDisconnect) {
+                    if (!prevAbnormalDisconnect) {
+                        abnormalModalDismissedForIncident = false;
+                        openAbnormalDisconnectModal();
+                    } else if (!abnormalModalDismissedForIncident) {
+                        let abdModal = document.getElementById('abnormal-disconnect-modal');
+                        if (abdModal && abdModal.style.display !== 'flex') {
+                            openAbnormalDisconnectModal();
+                        }
+                    }
+                } else if (!isReconnecting) {
+                    abnormalModalDismissedForIncident = false;
+                    closeAbnormalDisconnectModal();
+                }
 
                 // 🎯 偵測抵達「停留點 (hold=True)」事件，立即跳出通知橫幅與提示視窗
                 if (data.hold_arrival_seq && data.hold_arrival_seq > lastSeenHoldArrivalSeq) {
@@ -4068,7 +4372,14 @@
                     fetchDebugLogs();
                 }
 
-                if (prevReturning && !isSimulating && !isReturningHome) {
+                if (prevReconnecting && !isReconnecting && isSimulating) {
+                    abnormalModalDismissedForIncident = false;
+                    closeAbnormalDisconnectModal();
+                    refreshDevices();
+                    showToast("✅ 裝置已自動重連成功，繼續執行原任務！");
+                }
+
+                if (prevReturning && !isSimulating && !isReturningHome && !isReconnecting) {
                     if (returnHomePolyline) { map.removeLayer(returnHomePolyline); returnHomePolyline = null; }
                     if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
                     refreshDevices();
@@ -4103,10 +4414,16 @@
                 let remainLabel = document.getElementById('route-remain-label');
                 let flowerRow = document.getElementById('calc-flower-row');
 
-                if (isCruising || isReturningHome || isCruisePaused) {
+                if (isCruising || isReturningHome || isCruisePaused || isReconnecting || suspendedCruiseTask) {
                     taskPanel.style.display = 'block';
 
-                    if (isReturningHome) {
+                    if (isReconnecting || suspendedCruiseTask) {
+                        taskTitle.innerText = `🔄 ${connectStage || '連線中斷，自動重連並保留原任務中...'}`;
+                        taskTitle.style.color = '#b45309';
+                        taskDistLabel.innerText = '剩餘總距離:';
+                        remainLabel.innerText = returningToLoopOrigin ? '🏠 待返回原點 (點 1) 距離:' : `待接續點 ${currentWpIndex + 1} 距離:`;
+                        if (flowerRow) flowerRow.style.display = 'flex';
+                    } else if (isReturningHome) {
                         taskTitle.innerText = '🏠 平滑返航進度 (統一 60 km/h)';
                         taskTitle.style.color = '#34c759';
                         taskDistLabel.innerText = '距離真實起點:';
@@ -4194,7 +4511,7 @@
         }
 
         // 🎯【核心修復】：支援暫停後原處接續、循環單圈 < 5分半警告、以及開始行程時自動關閉手動搖桿
-        async function startCruise(forceReset = false) {
+        async function startCruise(forceReset = false, startIndex = null) {
             if (waypoints.length === 0 || !isSimulating || isStopping) return;
 
             if (loopMode !== 'none' && waypoints.length >= 2 && currentSpeedKmh < V_HARD_CAP_KMH) {
@@ -4219,8 +4536,9 @@
                 waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, hold: Boolean(w.hold), name: w.name || '' })),
                 loop_mode: loopMode,
                 loop_count: loopTargetCount,
-                resume: !forceReset,
-                reset: Boolean(forceReset)
+                resume: startIndex === null ? !forceReset : false,
+                reset: Boolean(forceReset),
+                start_index: startIndex
             };
 
             let res = await fetch('/api/cruise/start', {

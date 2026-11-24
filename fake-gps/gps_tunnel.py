@@ -701,6 +701,11 @@ class IOSUserspaceGpsService:
         self.cmd_queue: asyncio.Queue = asyncio.Queue()
         self.is_connected = False
         self.is_connecting = False
+        self.is_reconnecting = False
+        self.abnormal_disconnected: bool = False
+        self.reconnect_attempt: int = 0
+        self.max_reconnect_attempts: int = 8
+        self.resume_returning_home_on_reconnect: bool = False
         self.is_running = False
         self.user_requested_stop = False
         self.current_udid: str = udid
@@ -773,18 +778,37 @@ class IOSUserspaceGpsService:
         self.sim = sim
         self.current_lat = init_lat
         self.current_lon = init_lon
-        await sim.set(init_lat, init_lon)
+        await asyncio.wait_for(sim.set(init_lat, init_lon), timeout=5.0)
+        was_reconnecting = self.is_reconnecting
         self.is_connected = True
         self.is_running = True
         self.is_connecting = False
+        self.is_reconnecting = False
+        self.abnormal_disconnected = False
+        self.reconnect_attempt = 0
+        self.last_error = None
         self.connect_stage = "已連線"
-        print(f"✅ [Userspace] 裝置 {self.current_udid} ({self.transport_used}) 會話已就緒！座標: {init_lat:.6f}, {init_lon:.6f}")
+        if self.resume_returning_home_on_reconnect:
+            self.is_returning_home = True
+            self.is_stopping = True
+            self.resume_returning_home_on_reconnect = False
+        if was_reconnecting:
+            print(f"🔄 [Userspace] 裝置 {self.current_udid} ({self.transport_used}) 已自動重連並恢復定位！")
+            send_macos_notification(
+                "SIM-GPS 自動重連成功",
+                f"✅ {self.device_name} 已恢復連線",
+                "已自動接續原定位與巡航任務。",
+                sound_name="Ping",
+            )
+        else:
+            print(f"✅ [Userspace] 裝置 {self.current_udid} ({self.transport_used}) 會話已就緒！座標: {init_lat:.6f}, {init_lon:.6f}")
 
         # 連線就緒時安全清除任何殘留的 ConditionInducer 測試狀態
         with suppress(Exception):
             async with ConditionInducer(dvt) as ci:
                 await asyncio.wait_for(ci.clear(), timeout=2.0)
 
+        health_fail_count = 0
         try:
             while self.is_running:
                 try:
@@ -793,7 +817,8 @@ class IOSUserspaceGpsService:
                         lat, lon = payload
                         self.current_lat = lat
                         self.current_lon = lon
-                        await sim.set(lat, lon)
+                        await asyncio.wait_for(sim.set(lat, lon), timeout=2.5)
+                        health_fail_count = 0
                     elif action == "STOP":
                         self.user_requested_stop = True
                         break
@@ -801,6 +826,14 @@ class IOSUserspaceGpsService:
                         await self.cmd_queue.put(("START", payload))
                         break
                 except asyncio.TimeoutError:
+                    # 積極心跳與定時保活：只要連線中，即使未移動也每秒持續輸入相同座標，並於連續 2 次失敗時立即判定異常斷線
+                    try:
+                        await asyncio.wait_for(sim.set(self.current_lat, self.current_lon), timeout=2.5)
+                        health_fail_count = 0
+                    except Exception as hb_err:
+                        health_fail_count += 1
+                        if health_fail_count >= 2:
+                            raise ConnectionError(f"定位通道心跳檢查連續失敗 ({type(hb_err).__name__}: {hb_err})")
                     continue
 
             print(f"🛑 [Userspace] 正在清理裝置 {self.current_udid} 定位模擬狀態...")
@@ -814,6 +847,8 @@ class IOSUserspaceGpsService:
             self.ddi_power_saving_profile = ""
             self.is_connected = False
             self.is_running = False
+            if not self.user_requested_stop and self.is_returning_home:
+                self.resume_returning_home_on_reconnect = True
             self.is_returning_home = False
             self.is_stopping = False
             self.sim = None
@@ -824,11 +859,16 @@ class IOSUserspaceGpsService:
     async def _run_dvt_session(self, udid: str, init_lat: float, init_lon: float):
         self.is_connecting = True
         self.last_error = None
-        self.connect_stage = "正在檢查裝置與 DDI 狀態..."
+        self.connect_stage = (
+            f"正在自動重連 (第 {self.reconnect_attempt}/{self.max_reconnect_attempts} 次)..."
+            if self.is_reconnecting
+            else "正在檢查裝置與 DDI 狀態..."
+        )
         target_serial = None if (not udid or udid == "default") else udid
         ios_major = 17
         ddi_already_mounted = False
         was_connected_once = False
+        should_auto_reconnect = False
 
         try:
             # 🎯 1. 先嘗試透過 Wi-Fi (Network) 檢查 DDI 是否已掛載；若未掛載才使用 USB 進行首次 DDI 掛載與無線憑證引導
@@ -886,7 +926,11 @@ class IOSUserspaceGpsService:
                     continue
 
             # 🎯 2. 建立 RSD 隧道：即使插著 USB 線，只要 DDI 已掛載就優先嘗試 Wi-Fi 無線連線 (`prefer_wifi=True`)
-            self.connect_stage = "正在優先以 Wi-Fi 建立 RSD 安全隧道..."
+            self.connect_stage = (
+                f"正在重連 RSD 隧道 (第 {self.reconnect_attempt}/{self.max_reconnect_attempts} 次)..."
+                if self.is_reconnecting
+                else "正在優先以 Wi-Fi 建立 RSD 安全隧道..."
+            )
             async with ResilientRsdTunnel(serial=target_serial, autopair=True, prefer_wifi=True) as tunnel_rsd:
                 rsd = tunnel_rsd
                 if rsd.udid:
@@ -905,6 +949,7 @@ class IOSUserspaceGpsService:
         except (NotPairedError, UserDeniedPairingError, PairingError) as e:
             self.is_connected = False
             self.is_running = False
+            self.is_reconnecting = False
             self.last_error = (
                 "尚未完成手機信任配對！\n"
                 "請將 iPhone 解鎖、使用傳輸線連接 Mac，並在手機跳出的視窗點選「信任這部電腦」並輸入手機密碼。"
@@ -914,29 +959,59 @@ class IOSUserspaceGpsService:
         except DeveloperModeIsNotEnabledError as e:
             self.is_connected = False
             self.is_running = False
+            self.is_reconnecting = False
             self.last_error = "偵測到 iPhone 尚未開啟「開發者模式」！請至「設定 > 隱私權與安全性 > 開發者模式」開啟。"
             add_debug_log("開發者模式未啟用", f"{type(e).__name__}: {e}", stage="開發者模式檢查", udid=target_serial)
-        except NoDeviceConnectedError as e:
-            self.is_connected = False
-            self.is_running = False
-            self.last_error = "偵測不到 iPhone 裝置！首次掛載 DDI 請先插上 USB 傳輸線，完成後即可全程使用 Wi-Fi 連線。"
-            add_debug_log("找不到可用的 iPhone 裝置", f"{type(e).__name__}: {e}", stage="裝置探索", udid=target_serial)
         except Exception as e:
             self.is_connected = False
             self.is_running = False
-            self.last_error = f"無法與 iPhone 建立或維持定位通道 ({type(e).__name__}: {e})。"
-            stage_label = "DVT 定位維持中斷" if was_connected_once else (self.connect_stage or "建立連線通道")
-            add_debug_log(
-                title="連線通道異常中斷" if was_connected_once else "建立連線或掛載服務失敗",
-                error_msg=f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=3)}",
-                stage=stage_label,
-                udid=target_serial,
-            )
-            if was_connected_once and not self.user_requested_stop:
-                send_macos_notification("SIM-GPS 警報", "裝置連線中斷", f"與 {self.device_name} 連線中斷，正在嘗試自動重連...", sound_name="Basso")
-                await asyncio.sleep(1.5)
-                if not self.user_requested_stop:
-                    await self.cmd_queue.put(("START", (target_serial or "default", self.current_lat, self.current_lon)))
+            if isinstance(e, NoDeviceConnectedError):
+                self.last_error = "偵測不到 iPhone 裝置！首次掛載 DDI 請先插上 USB 傳輸線，完成後即可全程使用 Wi-Fi 連線。"
+                stage_label = "裝置探索"
+            else:
+                self.last_error = f"無法與 iPhone 建立或維持定位通道 ({type(e).__name__}: {e})。"
+                stage_label = "DVT 定位維持中斷" if was_connected_once else (self.connect_stage or "建立連線通道")
+
+            if not self.is_reconnecting or self.reconnect_attempt == 1:
+                add_debug_log(
+                    title="連線通道異常中斷" if (was_connected_once or self.is_reconnecting) else "建立連線或掛載服務失敗",
+                    error_msg=f"{type(e).__name__}: {e}\n{traceback.format_exc(limit=3)}",
+                    stage=stage_label,
+                    udid=target_serial,
+                )
+
+            # 🔄 只要曾經成功連線過（或已在自動重連流程中）且非使用者主動中斷，就標記異常斷線並進行退避重試以接續原任務
+            if (was_connected_once or self.is_reconnecting) and not self.user_requested_stop:
+                self.abnormal_disconnected = True
+                if self.reconnect_attempt < self.max_reconnect_attempts:
+                    self.is_reconnecting = True
+                    self.reconnect_attempt += 1
+                    should_auto_reconnect = True
+                    if self.reconnect_attempt == 1:
+                        send_macos_notification(
+                            "SIM-GPS 連線中斷警報",
+                            f"⚠️ {self.device_name} 連線異常中斷",
+                            "正在嘗試自動重連，重連後將自動接續原任務...",
+                            sound_name="Basso",
+                        )
+                    backoff_sec = min(10.0, 1.5 * self.reconnect_attempt)
+                    self.connect_stage = f"連線異常中斷，{backoff_sec:.1f} 秒後進行第 {self.reconnect_attempt}/{self.max_reconnect_attempts} 次自動重連..."
+                    waited = 0.0
+                    while waited < backoff_sec and not self.user_requested_stop:
+                        await asyncio.sleep(0.25)
+                        waited += 0.25
+                    if not self.user_requested_stop:
+                        await self.cmd_queue.put(("START", (target_serial or self.udid or "default", self.current_lat, self.current_lon)))
+                    else:
+                        should_auto_reconnect = False
+                else:
+                    self.is_reconnecting = False
+                    send_macos_notification(
+                        "SIM-GPS 自動重連失敗",
+                        f"❌ {self.device_name} 無法恢復連線",
+                        f"已重試 {self.max_reconnect_attempts} 次仍無法連線，請於視窗點擊重新連線或關閉。",
+                        sound_name="Basso",
+                    )
         finally:
             self.sim = None
             self.active_dvt = None
@@ -946,20 +1021,38 @@ class IOSUserspaceGpsService:
             self.ddi_power_saving_profile = ""
             self.is_connected = False
             self.is_running = False
-            self.is_connecting = False
-            self.is_returning_home = False
-            self.is_stopping = False
-            self.connect_stage = ""
+            if not should_auto_reconnect:
+                self.is_connecting = False
+                self.is_reconnecting = False
+                self.reconnect_attempt = 0
+                self.resume_returning_home_on_reconnect = False
+                self.connect_stage = ""
+            if self.user_requested_stop:
+                self.is_returning_home = False
+                self.is_stopping = False
 
     def connect(self, lat: float, lon: float):
         self.is_connecting = True
         self.is_returning_home = False
         self.is_stopping = False
         self.user_requested_stop = False
+        self.abnormal_disconnected = False
         self.last_error = None
         self.current_lat = lat
         self.current_lon = lon
         asyncio.run_coroutine_threadsafe(self.cmd_queue.put(("START", (self.udid, lat, lon))), self.loop)
+
+    def force_reconnect_now(self):
+        self.user_requested_stop = False
+        self.is_reconnecting = True
+        self.abnormal_disconnected = True
+        self.reconnect_attempt = 1
+        self.last_error = None
+        self.connect_stage = "正在重新連線並接續原任務..."
+        if not self.is_connecting and not self.is_connected and self.loop:
+            self.is_connecting = True
+            target_u = self.current_udid or self.target_udid or self.udid or "default"
+            asyncio.run_coroutine_threadsafe(self.cmd_queue.put(("START", (target_u, self.current_lat, self.current_lon))), self.loop)
 
     def set_location(self, lat: float, lon: float, force_returning: bool = False):
         if self.is_connected and self.loop:
@@ -971,6 +1064,10 @@ class IOSUserspaceGpsService:
 
     def stop(self):
         self.user_requested_stop = True
+        self.is_reconnecting = False
+        self.abnormal_disconnected = False
+        self.reconnect_attempt = 0
+        self.resume_returning_home_on_reconnect = False
         self.is_returning_home = False
         self.is_stopping = False
         if (self.is_connected or self.is_running or self.is_connecting) and self.loop:
@@ -1516,10 +1613,54 @@ class MultiDeviceGpsManager:
             return any(s.is_connecting for s in self.sessions.values())
 
     @property
+    def is_reconnecting(self) -> bool:
+        with self.lock:
+            return any(s.is_reconnecting for s in self.sessions.values())
+
+    @property
+    def reconnecting_udids(self) -> List[str]:
+        with self.lock:
+            return [
+                (s.current_udid or s.target_udid)
+                for s in self.sessions.values()
+                if s.is_reconnecting and (s.current_udid or s.target_udid)
+            ]
+
+    @property
+    def has_abnormal_disconnect(self) -> bool:
+        with self.lock:
+            return any(s.abnormal_disconnected for s in self.sessions.values())
+
+    @property
+    def abnormal_disconnected_udids(self) -> List[str]:
+        with self.lock:
+            return [
+                (s.current_udid or s.target_udid)
+                for s in self.sessions.values()
+                if s.abnormal_disconnected and (s.current_udid or s.target_udid)
+            ]
+
+    def reconnect_device_now(self, udid: Optional[str] = None) -> List[str]:
+        reconnected = []
+        with self.lock:
+            targets = [s for s in self.sessions.values() if (not udid or udid == "default" or s.current_udid == udid or s.target_udid == udid) and (s.abnormal_disconnected or s.is_reconnecting)]
+        for s in targets:
+            s.force_reconnect_now()
+            reconnected.append(s.current_udid or s.target_udid)
+        return reconnected
+
+    def abandon_reconnect(self, udid: Optional[str] = None) -> None:
+        with self.lock:
+            targets = [s for s in self.sessions.values() if (not udid or udid == "default" or s.current_udid == udid or s.target_udid == udid)]
+        for s in targets:
+            if s.abnormal_disconnected or s.is_reconnecting:
+                s.stop()
+
+    @property
     def connect_stage(self) -> str:
         with self.lock:
             for s in self.sessions.values():
-                if s.is_connecting and s.connect_stage:
+                if (s.is_connecting or s.is_reconnecting) and s.connect_stage:
                     return s.connect_stage
         return ""
 
